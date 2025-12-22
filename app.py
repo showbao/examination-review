@@ -9,7 +9,7 @@ st.title("📝 國小試卷審題系統 (AI 連線測試版)")
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-pro') # 使用最新快速模型
+    model = genai.GenerativeModel('gemini-1.5-flash') # 使用最新快速模型
     st.success("✅ AI 大腦連線成功！")
 except Exception as e:
     st.error("❌ API Key 設定失敗，請檢查 Streamlit Secrets。")
