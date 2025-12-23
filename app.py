@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 自訂 CSS (白底灰邊簡約風格 - 保持不變)
+# 自訂 CSS (白底灰邊簡約風格)
 st.markdown("""
     <style>
     /* 全局背景 */
@@ -53,7 +53,7 @@ st.markdown("""
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
 
-    /* 3. 審題報告卡片 */
+    /* 3. 審題報告卡片 (白底 + 灰邊 + 陰影) */
     .report-card {
         background-color: white;
         padding: 3rem;
@@ -96,12 +96,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. Word 生成引擎 (V6.6 修正版：解決表格錯位與過度列點) ---
+# --- 1. 進階 Word 生成引擎 (V6.7 修正版：處理 #### 與 清單樣式) ---
 def parse_markdown_to_word(doc, text):
     """
     將 Markdown 文字轉換為 Word 格式，針對使用者需求優化排版：
     1. 表格：精準對齊，解決空白格位移問題。
-    2. 清單：針對「問題、建議、現狀」等關鍵字，自動移除圓點符號，改為一般段落。
+    2. 清單：移除 * 號，改為一般段落，避免過多黑點。
+    3. 標題：支援 #### 轉為粗體小標。
     """
     lines = text.split('\n')
     table_buffer = []
@@ -121,32 +122,27 @@ def parse_markdown_to_word(doc, text):
                 table_buffer = [] # 清空緩存
 
         # --- B. 一般文本處理 ---
-        # 標題
+        # 標題 (Heading)
         if line.startswith('### '):
             doc.add_heading(line.replace('### ', ''), level=2)
         elif line.startswith('## '):
             doc.add_heading(line.replace('## ', ''), level=1)
+        elif line.startswith('#### '): # 【關鍵修正】處理 #### 標題
+            p = doc.add_paragraph()
+            run = p.add_run(line.replace('#### ', ''))
+            run.bold = True
+            run.font.size = Pt(12)
+            
         # 清單與一般文字
         else:
             p = doc.add_paragraph()
-            
             clean_line = line
-            is_bullet = False
             
-            # 判斷是否為清單
+            # 【關鍵修正】清單處理：移除 markdown 的 * 或 -，但不套用 Word 的 Bullet 樣式
+            # 改為一般文字，這樣就不會有黑點，符合「減少列點」的需求
             if line.startswith('* ') or line.startswith('- '):
                 clean_line = line[2:].strip()
-                
-                # 【關鍵修正 2】: 檢查內容是否為「問題、建議、分析...」
-                # 如果是這些開頭，雖然 Markdown 有 *，但在 Word 裡我們不要圓點，要變成一般段落
-                # 使用 Regex 偵測粗體開頭的關鍵字 (例如: **問題**：...)
-                if re.match(r'^(\*\*)?(問題|建議|現狀|分析|依據|結論|優點)', clean_line):
-                    is_bullet = False # 強制取消列點
-                else:
-                    is_bullet = True # 其他普通的清單保留列點
-            
-            if is_bullet:
-                p.style = 'List Bullet'
+                # 這裡不設定 p.style = 'List Bullet'，直接作為普通段落
             
             # --- C. 粗體解析 (**text**) ---
             # 使用 Regex 將字串切分為：[一般文字, **粗體**, 一般文字, ...]
@@ -165,17 +161,13 @@ def parse_markdown_to_word(doc, text):
         create_word_table(doc, table_buffer)
 
 def create_word_table(doc, markdown_lines):
-    """
-    將 Markdown 表格字串轉換為 Word 表格
-    【關鍵修正 1】：嚴格處理空白儲存格，防止資料錯位
-    """
+    """將 Markdown 表格字串轉換為 Word 表格"""
     try:
         # 過濾掉分隔線 (例如 |---|---|)
         rows = [line for line in markdown_lines if '---' not in line]
         if not rows: return
 
         # 解析標題列 (找出總欄位數)
-        # 技巧：去除首尾的 | 後再 split，這樣才是真正的資料格
         header_line = rows[0].strip().strip('|')
         headers = [h.strip() for h in header_line.split('|')]
         col_count = len(headers)
@@ -189,24 +181,18 @@ def create_word_table(doc, markdown_lines):
         for i, header_text in enumerate(headers):
             if i < len(hdr_cells):
                 hdr_cells[i].text = header_text
-                # 標題加粗
                 for paragraph in hdr_cells[i].paragraphs:
                     for run in paragraph.runs:
                         run.bold = True
 
         # 填入內容
         for line in rows[1:]:
-            # 先去除首尾的 | (Markdown表格通常頭尾都有 |)
             clean_line = line.strip().strip('|')
-            # 使用 split('|')，不加參數，這樣會保留空字串 (代表空白格)
             cells_data = clean_line.split('|')
             
-            # 建立新列
             row_cells = table.add_row().cells
-            
             for i, cell_text in enumerate(cells_data):
                 if i < col_count and i < len(row_cells):
-                    # 清理文字並移除粗體符號(表格內保持整潔)
                     final_text = cell_text.strip().replace('**', '')
                     row_cells[i].text = final_text
                     
@@ -217,8 +203,11 @@ def generate_word_report_doc(text, exam_meta):
     doc = Document()
     
     # 設定中文字型
-    doc.styles['Normal'].font.name = 'Microsoft JhengHei'
-    doc.styles['Normal']._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+    try:
+        doc.styles['Normal'].font.name = 'Microsoft JhengHei'
+        doc.styles['Normal']._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+    except:
+        pass
     
     # 標題
     heading = doc.add_heading('台中市北屯區建功國小 智慧審題報告', 0)
@@ -395,7 +384,6 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             
             status.write("🧠 Gemini 3.0 Pro 正在執行雙向細目表分析...")
             
-            # --- 專家級提示詞 (V4 嚴謹版) ---
             prompt = f"""
             # Role: 台灣國小教育評量暨素養導向命題專家
             
@@ -467,12 +455,10 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
                 type="primary"
             )
             
-            # 卡片呈現 (直接顯示，修復 DeltaGenerator 問題)
-            st.markdown(f"""
-            <div class='report-card'>
-                {st.markdown(ai_report) or ""} 
-            </div>
-            """, unsafe_allow_html=True)
+            # 【關鍵修復】正確渲染卡片，解決 DeltaGenerator 亂碼
+            st.markdown(f"<div class='report-card'>", unsafe_allow_html=True)
+            st.markdown(ai_report)
+            st.markdown("</div>", unsafe_allow_html=True)
             
         except Exception as e:
             status.update(label="❌ 發生錯誤", state="error")
