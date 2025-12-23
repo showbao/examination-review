@@ -20,47 +20,68 @@ st.set_page_config(
 # 自訂 CSS (介面微調核心)
 st.markdown("""
     <style>
-    /* 1. 頂部淨空術：移除預設的大片空白 */
-    .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 2rem !important;
-    }
-    
-    /* 2. 背景色調 */
+    /* 1. 全局字體與背景 */
     .stApp { background-color: #f0f2f6; }
     
-    /* 3. 卡片式風格重構 (利用 st.info 與 st.error 進行偽裝) */
-    /* 針對 st.info (正常卡片) */
+    /* 2. 登入畫面優化 */
+    /* 讓登入卡片往下移一點，不要貼頂 */
+    .login-spacer { height: 5vh; }
+    
+    /* 密碼輸入框加強框線 */
+    input[type="password"] {
+        border: 2px solid #2563eb !important; /* 藍色框線 */
+        border-radius: 8px !important;
+        padding: 10px !important;
+        background-color: #f8fafc !important;
+    }
+    
+    /* 3. 卡片式風格重構 (針對 st.info / st.error / st.markdown) */
+    /* 移除原生 st.info 的背景色，改為白色卡片 */
     div[data-testid="stInfo"] {
         background-color: white;
         border: none;
         border-left: 6px solid #4CAF50; /* 綠色識別線 */
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* 增加陰影 */
         color: #333;
-        padding: 1rem;
+        padding: 1.5rem;
+        border-radius: 12px;
     }
-    /* 針對 st.error (警告卡片) */
+    /* 警告卡片 */
     div[data-testid="stError"] {
         background-color: white;
         border: none;
         border-left: 6px solid #FF5252; /* 紅色識別線 */
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         color: #333;
-        padding: 1rem;
-    }
-    /* 隱藏原生 Icon 以便獲得最大空間 (可選) */
-    div[data-testid="stAlert"] > div:first-child {
-        /* display: none; */ /* 如果想保留圖示可註解此行 */
-    }
-
-    /* 4. 上傳區容器樣式 (手動 HTML 卡片) */
-    .upload-card {
-        background-color: white;
         padding: 1.5rem;
         border-radius: 12px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        margin-bottom: 1rem;
+    }
+
+    /* 4. 上傳區視覺整合 (關鍵 CSS) */
+    /* 上半部：標題區 (由 HTML 生成) */
+    .upload-card-header {
+        background-color: white;
+        padding: 1.5rem 1.5rem 0.5rem 1.5rem; /* 下方 padding 減少，接合下半部 */
+        border-radius: 12px 12px 0 0; /* 只圓上面兩個角 */
         border-top: 5px solid #2196F3;
+        margin-bottom: 0px !important; /* 貼緊下方元件 */
+    }
+    .upload-card-header-green {
+        border-top: 5px solid #4CAF50;
+    }
+
+    /* 下半部：Streamlit 上傳元件 (由 st.file_uploader 生成) */
+    div[data-testid="stFileUploader"] {
+        background-color: white;
+        padding: 0 1.5rem 1.5rem 1.5rem; /* 上方 padding 0，接合上半部 */
+        border-radius: 0 0 12px 12px; /* 只圓下面兩個角 */
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* 統一陰影 */
+        margin-top: -16px; /* 負邊距，強制向上吸附標題區 */
+    }
+    
+    /* 微調上傳按鈕區域，讓它看起來像在卡片內 */
+    section[data-testid="stFileUploader"] > div {
+        padding-top: 0px;
     }
 
     /* 標題樣式 */
@@ -76,6 +97,7 @@ st.markdown("""
         background-color: #2563eb; 
         color: white;
         box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+        margin-top: 10px;
     }
     .stButton>button:hover {
         background-color: #1d4ed8;
@@ -90,6 +112,7 @@ st.markdown("""
         border-radius: 8px;
         font-size: 0.9rem;
         line-height: 1.6;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     .disclaimer-title { font-weight: bold; margin-bottom: 5px; font-size: 1rem; }
     
@@ -107,10 +130,12 @@ if 'logged_in' not in st.session_state:
 def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # 使用原生 container 但配合 CSS 會有卡片效果
+        # 增加頂部間距
+        st.markdown("<div class='login-spacer'></div>", unsafe_allow_html=True)
+        
+        # 使用 container 配合 CSS
         with st.container():
-            st.markdown("<h2 style='text-align: center; color: #1e3a8a;'>🔐 建功國小智慧審題系統</h2>", unsafe_allow_html=True)
-            st.markdown("---")
+            st.markdown("<h2 style='text-align: center; color: #1e3a8a; margin-bottom: 30px;'>🔐 建功國小智慧審題系統</h2>", unsafe_allow_html=True)
             
             st.markdown("""
             <div class='disclaimer-box'>
@@ -125,7 +150,7 @@ def login_page():
             """, unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            password = st.text_input("請輸入校內授權密碼", type="password")
+            password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請在此輸入密碼...")
             
             if st.button("我同意以上聲明並登入"):
                 secret_pass = st.secrets.get("LOGIN_PASSWORD", "school123")
@@ -137,7 +162,7 @@ def login_page():
 
 # --- 3. 主應用程式 ---
 def main_app():
-    # CSS Hack 隱藏側邊欄箭頭 (盡量隱藏)
+    # CSS Hack 隱藏側邊欄箭頭
     st.markdown("""<style>[data-testid="collapsedControl"] {display: none}</style>""", unsafe_allow_html=True)
     
     # --- 側邊欄 ---
@@ -189,24 +214,40 @@ def main_app():
 
     # --- 主畫面 ---
     
-    # 標題區 (已移除上方空白)
+    # 標題區
     st.markdown("<h1 style='text-align: center; margin-bottom: 20px;'>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
     
     # 1. 顯眼的設定引導提示
     if st.sidebar.state == "collapsed": 
         st.warning("👈 **老師請注意：請先點擊畫面左上角的「>」箭頭，展開設定年級與科目！**")
 
-    # 2. 資料上傳區 (卡片式)
+    # 2. 資料上傳區 (卡片整合版)
     st.markdown("<h3 style='margin-top: 20px;'>📂 資料上傳區</h3>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     
+    # 左側：試卷上傳卡片
     with col1:
-        st.markdown("<div class='upload-card'><b>📄 1. 上傳試卷 (必要)</b><br><small style='color:gray'>支援 PDF 格式，無大小限制</small></div>", unsafe_allow_html=True)
+        # 上半部：標題與說明 (使用 CSS class upload-card-header)
+        st.markdown("""
+        <div class='upload-card-header'>
+            <b>📄 1. 上傳試卷 (必要)</b><br>
+            <small style='color:gray;'>檔案大小上限為 100MB</small>
+        </div>
+        """, unsafe_allow_html=True)
+        # 下半部：上傳元件 (CSS 會自動將其變為卡片下半部，包含檔案列表)
         uploaded_exam = st.file_uploader("上傳試卷", type=['pdf'], key="exam", label_visibility="collapsed")
     
+    # 右側：教材上傳卡片
     with col2:
-        st.markdown(f"<div class='upload-card' style='border-top-color: #4CAF50;'><b>📘 2. 上傳 {grade}{subject} 課本/習作 (選填)</b><br><small style='color:gray'>AI 將進行精準範圍比對</small></div>", unsafe_allow_html=True)
+        # 上半部：標題與說明 (綠色頂邊)
+        st.markdown(f"""
+        <div class='upload-card-header upload-card-header-green'>
+            <b>📘 2. 上傳 {grade}{subject} 課本/習作 (選填)</b><br>
+            <small style='color:gray;'>如上傳可使用 AI 精準比對，未上傳則依據 108 課綱比對。</small>
+        </div>
+        """, unsafe_allow_html=True)
+        # 下半部：上傳元件
         uploaded_refs = st.file_uploader(
             "上傳教材", 
             type=['pdf'], 
@@ -222,7 +263,7 @@ def main_app():
         if st.button("🚀 啟動 AI 專家審題 (Gemini 3.0 Pro)", type="primary"):
             process_review(uploaded_exam, uploaded_refs, grade, subject, strictness, exam_scope)
 
-# --- 4. 核心邏輯 (V4.2 修正版) ---
+# --- 4. 核心邏輯 ---
 def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope):
     
     with st.container():
@@ -267,7 +308,7 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
 
             status.write("🧠 Gemini 3.0 Pro 正在執行深度審查...")
             
-            # --- V4.2 Prompt: Action Plan 移至最底端 ---
+            # --- Prompt: Action Plan 移至最底端 ---
             prompt = f"""
             # Role: 台灣國小教育評量暨素養導向命題專家
             
