@@ -12,7 +12,7 @@ except ImportError:
 
 # --- 0. 全局設定與 CSS 美化 ---
 st.set_page_config(
-    page_title="國小試卷智慧審題系統 V3.4 (專家版)",
+    page_title="臺中市北屯區建功國小試卷智慧審題系統",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="collapsed"
