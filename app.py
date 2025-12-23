@@ -3,7 +3,6 @@ import google.generativeai as genai
 from io import BytesIO
 import re
 import os
-import requests
 
 # --- PDF 報告生成庫 ---
 from reportlab.lib import colors
@@ -38,7 +37,7 @@ st.markdown("""
     .login-spacer { height: 5vh; }
     input[type="password"] { border: 2px solid #2563eb !important; border-radius: 8px !important; padding: 10px !important; }
     
-    /* 卡片優化 (報告區與登入框) */
+    /* 卡片優化 */
     div[data-testid="stInfo"], div[data-testid="stError"], .card-box {
         background-color: white; border: none; 
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); 
@@ -47,42 +46,21 @@ st.markdown("""
     div[data-testid="stInfo"] { border-left: 6px solid #4CAF50; }
     div[data-testid="stError"] { border-left: 6px solid #FF5252; }
 
-    /* 標題樣式 */
+    /* 上傳區簡化 */
+    .upload-label { font-size: 1.1rem; font-weight: 700; color: #334155; margin-bottom: 0.5rem; display: block; }
+    .upload-sub { font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem; display: block; }
+    
     h1 { color: #1e3a8a; font-weight: 800; font-size: 2rem; }
     h2, h3 { color: #2c3e50; font-weight: 600; }
     
-    /* 按鈕美化 (圓角漸層) */
+    /* 按鈕美化 */
     .stButton>button { 
-        width: 100%; 
-        border-radius: 50px !important; /* 圓角 */
-        font-weight: 700 !important; 
-        height: 3.5em !important; 
-        background: linear-gradient(90deg, #2563eb, #1d4ed8) !important; /* 漸層藍 */
-        color: white !important; 
-        box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3) !important;
-        border: none !important;
-        transition: all 0.3s ease !important;
-        font-size: 1.1rem !important;
+        width: 100%; border-radius: 50px !important; font-weight: 700 !important; height: 3.5em !important; 
+        background: linear-gradient(90deg, #2563eb, #1d4ed8) !important; color: white !important; 
+        box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3) !important; border: none !important;
+        transition: all 0.3s ease !important; font-size: 1.1rem !important;
     }
-    .stButton>button:hover { 
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4) !important;
-    }
-    
-    /* 上傳區簡化 (非卡片式，避免重疊) */
-    .upload-label {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #334155;
-        margin-bottom: 0.5rem;
-        display: block;
-    }
-    .upload-sub {
-        font-size: 0.9rem;
-        color: #64748b;
-        margin-bottom: 0.5rem;
-        display: block;
-    }
+    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4) !important; }
     
     .disclaimer-box {
         background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404;
@@ -94,49 +72,24 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. 字型下載與註冊 (修正連結版) ---
+# --- 1. 字型註冊 (本地讀取版 - 最完美解法) ---
 @st.cache_resource
 def setup_chinese_fonts():
-    """下載並註冊中文字型 (Noto Serif TC)"""
-    font_dir = "fonts"
-    if not os.path.exists(font_dir):
-        os.makedirs(font_dir)
+    """直接讀取專案內的字型檔，不再下載"""
+    font_name = "NotoSerifTC-Regular.ttf"
     
-    font_path = os.path.join(font_dir, "NotoSerifTC-Regular.ttf")
-    
-    # 嘗試多個下載來源 (防呆機制)
-    urls = [
-        # Google Fonts GitHub (Static Folder - 新路徑)
-        "https://github.com/google/fonts/raw/main/ofl/notoseriftc/static/NotoSerifTC-Regular.ttf",
-        # 備用：Noto Sans TC (黑體)
-        "https://github.com/google/fonts/raw/main/ofl/notosanstc/static/NotoSansTC-Regular.ttf"
-    ]
-    
-    if not os.path.exists(font_path):
-        success = False
-        for url in urls:
-            try:
-                with requests.get(url, stream=True, timeout=15) as r:
-                    r.raise_for_status()
-                    with open(font_path, "wb") as f:
-                        for chunk in r.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                success = True
-                break # 下載成功就跳出
-            except Exception:
-                continue # 失敗就試下一個
-        
-        if not success:
-            st.warning("⚠️ 字型下載失敗，PDF 中文顯示可能會異常。")
-            return False
+    # 檢查檔案是否存在
+    if not os.path.exists(font_name):
+        st.error(f"⚠️ 找不到字型檔：{font_name}。請確認您已將該檔案上傳至 GitHub 專案根目錄。")
+        return False
 
-    # 註冊字型 (將粗體也指向同一個檔案，防止崩潰)
     try:
-        pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
-        pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_path)) 
+        # 註冊字型 (一般與粗體都指向同一個檔案，確保穩定)
+        pdfmetrics.registerFont(TTFont('ChineseFont', font_name))
+        pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_name)) 
         return True
     except Exception as e:
-        st.error(f"字型註冊錯誤: {e}")
+        st.error(f"字型註冊失敗: {e}")
         return False
 
 # 初始化字型
@@ -341,7 +294,7 @@ def main_app():
     st.markdown("<h1 style='text-align: center; margin-bottom: 20px;'>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
     if st.sidebar.state == "collapsed": st.warning("👈 **老師請注意：請先點擊左上角「>」展開設定年級與科目！**")
 
-    # 資料上傳區 (回歸簡約樣式)
+    # 資料上傳區
     st.markdown("<h3 style='margin-top: 20px; border-left: 5px solid #2563eb; padding-left: 10px;'>📂 資料上傳區</h3>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top:0; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
