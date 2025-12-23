@@ -15,7 +15,7 @@ except ImportError:
 
 # --- 0. 全局設定與 CSS 美化 ---
 st.set_page_config(
-    page_title="台中市北屯區建功國小智慧審題系統",
+    page_title="台中市北屯區建功國小智慧審題系統V1",
     page_icon="🏫",
     layout="wide",
     initial_sidebar_state="collapsed"
