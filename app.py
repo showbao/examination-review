@@ -287,7 +287,7 @@ def login_page():
                 <h2 style='text-align: center; color: #1e3a8a; margin-bottom: 20px;'>🔐 北屯區建功國小智慧審題系統</h2>
                 <div class='disclaimer-box'>
                     <div class='disclaimer-title'>⚠️ 使用前請詳閱以下說明：</div><br>
-                    本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。<br>
+                    本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。<br><br>
                     <b>1. 人工查核機制：</b>AI 生成內容可能存在誤差或不可預期的錯誤（幻覺），最終試卷定稿請務必回歸教師專業判斷。<br>
                     <b>2. 資料隱私安全：</b>嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。<br>
                     <b>3. 資料留存規範：</b>本系統不永久留存檔案，上傳之文件將於系統重啟或對話結束後自動銷毀。<br>
