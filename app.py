@@ -1,9 +1,10 @@
 import streamlit as st
 import google.generativeai as genai
 from io import BytesIO
-from docx import Document # 改回使用 python-docx
-from docx.shared import Pt # 用於設定 Word 字體大小
-from docx.enum.text import WD_ALIGN_PARAGRAPH # 用於設定 Word 對齊
+import re  # <--- 關鍵修正：補上這個模組
+from docx import Document 
+from docx.shared import Pt 
+from docx.enum.text import WD_ALIGN_PARAGRAPH 
 
 # 嘗試匯入 PDF 讀取套件
 try:
@@ -130,7 +131,6 @@ def generate_word_report(text, exam_meta):
     doc.add_paragraph("\n") # 空行
     
     # 寫入 AI 報告內容
-    # 簡單處理：將 Markdown 的標題符號 (#) 轉換為 Word 格式，其餘保留文字
     for line in text.split('\n'):
         line = line.strip()
         if not line: continue
@@ -163,7 +163,7 @@ def extract_exam_meta(text, grade, subject):
         "subject": subject
     }
     
-    sample = text[:500]
+    sample = text[:800]
     m_year = re.search(r'(\d{3})\s*學年度', sample)
     if m_year: meta['year'] = m_year.group(0)
     
@@ -296,7 +296,6 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             
             status.write("🧠 Gemini 3.0 Pro 正在執行雙向細目表分析...")
             
-            # --- 調整後的順序：Action Plan 移至最後 ---
             prompt = f"""
             # Role: 台灣國小教育評量暨素養導向命題專家
             
@@ -354,14 +353,12 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             ai_report = response.text
             
             status.write("📝 正在製作 Word 報告...")
-            # 使用 docx 生成報告
             word_file = generate_word_report(ai_report, exam_meta)
             
             status.update(label="✅ 分析完成！", state="complete", expanded=False)
             
             st.subheader("📊 審題報告預覽")
             
-            # 下載按鈕 (改回 Word)
             st.download_button(
                 label="📥 下載 Word 報告 (.docx)",
                 data=word_file.getvalue(),
@@ -370,15 +367,11 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
                 type="primary"
             )
             
-            # 報告卡片呈現 (單一整合卡片，解決跑版問題)
-            # 使用 st.markdown 渲染 HTML 容器，內部再渲染 Markdown 文字
             st.markdown(f"""
             <div class='report-card'>
                 {st.markdown(ai_report) or ""} 
             </div>
             """, unsafe_allow_html=True)
-            # 注意：st.markdown() 回傳 None，這裡我們稍微調整寫法以正確顯示
-            # 改為先印 div 頭，再印 markdown，再印 div 尾，這是 Streamlit 的標準做法
             
         except Exception as e:
             status.update(label="❌ 發生錯誤", state="error")
@@ -386,5 +379,7 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             if "429" in str(e): st.warning("⚠️ 配額已滿，請稍後再試。")
 
 if __name__ == "__main__":
-    if st.session_state['logged_in']: main_app()
-    else: login_page()
+    if st.session_state['logged_in']:
+        main_app()
+    else:
+        login_page()
