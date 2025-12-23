@@ -15,7 +15,7 @@ except ImportError:
 
 # --- 0. 全局設定與 CSS 美化 ---
 st.set_page_config(
-    page_title="臺中市北屯區建功國小智慧審題系統V1",
+    page_title="北屯區建功國小智慧審題系統V1",
     page_icon="🏫",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -210,7 +210,7 @@ def generate_word_report_doc(text, exam_meta):
         pass
     
     # 標題
-    heading = doc.add_heading('臺中市北屯區建功國小 智慧審題報告', 0)
+    heading = doc.add_heading('北屯區建功國小 智慧審題報告', 0)
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
     # 試卷資訊區塊
@@ -284,7 +284,7 @@ def login_page():
         with st.container():
             st.markdown("""
             <div class='login-card'>
-                <h2 style='text-align: center; color: #1e3a8a; margin-bottom: 20px;'>🔐 臺中市北屯區建功國小智慧審題系統</h2>
+                <h2 style='text-align: center; color: #1e3a8a; margin-bottom: 20px;'>🔐 北屯區建功國小智慧審題系統</h2>
                 <div class='disclaimer-box'>
                     <div class='disclaimer-title'>⚠️ 使用前請詳閱以下說明：</div>
                     本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。<br><br>
