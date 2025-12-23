@@ -13,6 +13,7 @@ from reportlab.lib.units import cm, mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.fonts import addMapping # 【關鍵修正】引入字型對應功能
 
 # 嘗試匯入 PDF 讀取套件
 try:
@@ -73,54 +74,38 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. 字型註冊 (本地檔案優先策略) ---
+# --- 1. 字型註冊 (本地讀取 + 家族對應修復版) ---
 @st.cache_resource
 def setup_chinese_fonts():
-    """
-    優先讀取本地上傳的 'NotoSerifTC-Regular.ttf'。
-    如果本地沒有，才嘗試下載 (但強烈建議上傳本地檔以確保穩定)。
-    """
-    font_filename = "NotoSerifTC-Regular.ttf"
+    """直接讀取專案內的字型檔，並建立粗體對應"""
+    font_name = "NotoSerifTC-Regular.ttf"
     
-    # 1. 檢查當前目錄 (Root) 是否有字型檔
-    if os.path.exists(font_filename):
-        font_path = font_filename
-    else:
-        # 2. 如果沒有，嘗試去 fonts 資料夾找
-        font_dir = "fonts"
-        if not os.path.exists(font_dir): os.makedirs(font_dir)
-        font_path = os.path.join(font_dir, font_filename)
-        
-        # 3. 真的找不到才下載 (備用方案)
-        if not os.path.exists(font_path):
-            st.warning(f"⚠️ 系統偵測不到本地字型檔 ({font_filename})，正在嘗試從網路下載... (建議手動上傳以確保穩定)")
-            url = "https://github.com/google/fonts/raw/main/ofl/notoseriftc/static/NotoSerifTC-Regular.ttf"
-            try:
-                with requests.get(url, stream=True, timeout=20) as r:
-                    r.raise_for_status()
-                    with open(font_path, "wb") as f:
-                        for chunk in r.iter_content(chunk_size=8192):
-                            f.write(chunk)
-            except Exception as e:
-                st.error(f"❌ 字型下載失敗：{e}。請將 {font_filename} 上傳至 GitHub 根目錄。")
-                return False
+    # 檢查檔案是否存在
+    if not os.path.exists(font_name):
+        st.error(f"⚠️ 找不到字型檔：{font_name}。請確認您已將該檔案上傳至 GitHub 專案根目錄。")
+        return False
 
-    # 4. 註冊字型 (關鍵：解決粗體映射錯誤)
     try:
-        # 註冊標準字體
-        pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
-        # 【關鍵修復】將 Bold (粗體) 也指向同一個檔案
-        # ReportLab 找不到粗體檔時會報錯，所以我們強制它用標準檔來當粗體用
-        pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_path)) 
+        # 1. 註冊實體字型檔
+        pdfmetrics.registerFont(TTFont('ChineseFont', font_name))
+        pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_name)) 
+        
+        # 2. 【關鍵修正】建立字型家族對應 (Mapping)
+        # 告訴 ReportLab：當遇到 <b> 標籤時，請使用 ChineseFont-Bold
+        addMapping('ChineseFont', 0, 0, 'ChineseFont')    # normal
+        addMapping('ChineseFont', 0, 1, 'ChineseFont-Bold') # italic (這裡借用 bold 當 italic 用，避免缺字)
+        addMapping('ChineseFont', 1, 0, 'ChineseFont-Bold') # bold
+        addMapping('ChineseFont', 1, 1, 'ChineseFont-Bold') # bold italic
+        
         return True
     except Exception as e:
-        st.error(f"❌ 字型註冊失敗 (檔案可能損壞)：{e}")
+        st.error(f"字型註冊失敗: {e}")
         return False
 
 # 初始化字型
 has_font = setup_chinese_fonts()
 
-# --- 2. PDF 生成引擎 ---
+# --- 2. PDF 生成引擎 (修復標籤解析問題) ---
 def create_pdf_report(ai_content, exam_meta):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -131,7 +116,6 @@ def create_pdf_report(ai_content, exam_meta):
     )
     
     styles = getSampleStyleSheet()
-    # 確保字型已載入，否則退回英文預設
     font_name = 'ChineseFont' if has_font else 'Helvetica'
     font_name_bold = 'ChineseFont-Bold' if has_font else 'Helvetica-Bold'
     
@@ -214,11 +198,21 @@ def create_pdf_report(ai_content, exam_meta):
                 in_table = False
                 table_data = []
             
-            formatted_line = line.replace('**', '<b>').replace('**', '</b>')
+            # 【關鍵修正】使用 Regex 正確替換成對的粗體符號
+            # 舊寫法: replace('**', '<b>') 會導致標籤不閉合
+            # 新寫法: re.sub 確保成對替換
+            formatted_line = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', line)
+            
+            # 處理警示顏色
             if '❌' in formatted_line or '⚠️' in formatted_line:
                 formatted_line = f'<font color="red">{formatted_line}</font>'
             
-            story.append(Paragraph(formatted_line, style_normal))
+            try:
+                story.append(Paragraph(formatted_line, style_normal))
+            except Exception:
+                # 【防呆機制】如果標籤解析依然失敗（例如內容含有 < > 符號），則清除所有標籤，只顯示純文字
+                clean_text = re.sub(r'<[^>]+>', '', formatted_line) 
+                story.append(Paragraph(clean_text, style_normal))
 
     if in_table and table_data:
         try:
