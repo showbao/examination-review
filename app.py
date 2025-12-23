@@ -13,7 +13,7 @@ from reportlab.lib.units import cm, mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib.fonts import addMapping # 【關鍵修正】引入字型對應功能
+from reportlab.lib.fonts import addMapping
 
 # 嘗試匯入 PDF 讀取套件
 try:
@@ -29,83 +29,117 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 自訂 CSS
+# 自訂 CSS (符合您要求的白底灰邊風格)
 st.markdown("""
     <style>
-    .stApp { background-color: #f0f2f6; }
-    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; }
+    /* 全局背景 */
+    .stApp { background-color: #f8f9fa; }
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 3rem !important; }
     
-    /* 登入頁樣式 */
-    .login-spacer { height: 5vh; }
-    input[type="password"] { border: 2px solid #2563eb !important; border-radius: 8px !important; padding: 10px !important; }
+    /* 標題樣式 */
+    h1 { color: #2c3e50; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
+    h2, h3 { color: #34495e; font-weight: 700; }
     
-    /* 卡片優化 */
-    div[data-testid="stInfo"], div[data-testid="stError"], .card-box {
-        background-color: white; border: none; 
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); 
-        color: #333; padding: 1.5rem; border-radius: 12px;
+    /* 1. 登入區卡片 */
+    .login-card {
+        background-color: white;
+        padding: 2.5rem;
+        border-radius: 12px;
+        border: 1px solid #e0e0e0;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
     }
-    div[data-testid="stInfo"] { border-left: 6px solid #4CAF50; }
-    div[data-testid="stError"] { border-left: 6px solid #FF5252; }
+    
+    /* 2. 上傳區樣式 (非卡片式，避免重疊) */
+    .upload-label { font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-bottom: 0.5rem; display: block; }
+    .upload-sub { font-size: 0.9rem; color: #666; margin-bottom: 0.8rem; display: block; }
+    div[data-testid="stFileUploader"] {
+        background-color: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 1rem;
+    }
 
-    /* 上傳區簡化 */
-    .upload-label { font-size: 1.1rem; font-weight: 700; color: #334155; margin-bottom: 0.5rem; display: block; }
-    .upload-sub { font-size: 0.9rem; color: #64748b; margin-bottom: 0.5rem; display: block; }
+    /* 3. 審題報告卡片 (白底 + 灰邊 + 陰影) */
+    .report-card {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 12px;
+        border: 1px solid #d1d5db; /* 灰色邊框 */
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* 柔和陰影 */
+        margin-bottom: 1.5rem;
+    }
     
-    h1 { color: #1e3a8a; font-weight: 800; font-size: 2rem; }
-    h2, h3 { color: #2c3e50; font-weight: 600; }
-    
-    /* 按鈕美化 */
+    /* 4. 按鈕美化 */
     .stButton>button { 
-        width: 100%; border-radius: 50px !important; font-weight: 700 !important; height: 3.5em !important; 
-        background: linear-gradient(90deg, #2563eb, #1d4ed8) !important; color: white !important; 
-        box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3) !important; border: none !important;
-        transition: all 0.3s ease !important; font-size: 1.1rem !important;
+        width: 100%; border-radius: 8px !important; font-weight: 700 !important; height: 3.2em !important; 
+        background: linear-gradient(135deg, #2563eb, #1e40af) !important; color: white !important; 
+        border: none !important; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
+        transition: transform 0.2s, box-shadow 0.2s !important;
     }
-    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4) !important; }
+    .stButton>button:hover { 
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3) !important;
+    }
     
+    /* 5. 提示框優化 */
     .disclaimer-box {
-        background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404;
-        padding: 15px; border-radius: 8px; font-size: 0.9rem; line-height: 1.6;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        background-color: #fff8e1; border-left: 5px solid #ffc107; color: #856404;
+        padding: 15px; border-radius: 4px; font-size: 0.95rem; line-height: 1.6;
+        margin-bottom: 20px;
     }
-    .disclaimer-title { font-weight: bold; margin-bottom: 5px; font-size: 1rem; }
+    
+    /* 隱藏預設元素 */
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    
+    /* 輸入框美化 */
+    input[type="password"], input[type="text"] {
+        border: 1px solid #ccc !important;
+        border-radius: 6px !important;
+        padding: 10px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. 字型註冊 (本地讀取 + 家族對應修復版) ---
+# --- 1. 字型註冊 (本地讀取) ---
 @st.cache_resource
 def setup_chinese_fonts():
-    """直接讀取專案內的字型檔，並建立粗體對應"""
     font_name = "NotoSerifTC-Regular.ttf"
     
-    # 檢查檔案是否存在
-    if not os.path.exists(font_name):
-        st.error(f"⚠️ 找不到字型檔：{font_name}。請確認您已將該檔案上傳至 GitHub 專案根目錄。")
-        return False
+    # 檢查根目錄
+    if os.path.exists(font_name):
+        font_path = font_name
+    else:
+        # 檢查 fonts 資料夾
+        font_dir = "fonts"
+        if not os.path.exists(font_dir): os.makedirs(font_dir)
+        font_path = os.path.join(font_dir, font_name)
+        
+        # 下載備用
+        if not os.path.exists(font_path):
+            url = "https://github.com/google/fonts/raw/main/ofl/notoseriftc/static/NotoSerifTC-Regular.ttf"
+            try:
+                with requests.get(url, stream=True, timeout=20) as r:
+                    r.raise_for_status()
+                    with open(font_path, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            f.write(chunk)
+            except:
+                return False # 下載失敗就用預設
 
     try:
-        # 1. 註冊實體字型檔
-        pdfmetrics.registerFont(TTFont('ChineseFont', font_name))
-        pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_name)) 
-        
-        # 2. 【關鍵修正】建立字型家族對應 (Mapping)
-        # 告訴 ReportLab：當遇到 <b> 標籤時，請使用 ChineseFont-Bold
-        addMapping('ChineseFont', 0, 0, 'ChineseFont')    # normal
-        addMapping('ChineseFont', 0, 1, 'ChineseFont-Bold') # italic (這裡借用 bold 當 italic 用，避免缺字)
-        addMapping('ChineseFont', 1, 0, 'ChineseFont-Bold') # bold
-        addMapping('ChineseFont', 1, 1, 'ChineseFont-Bold') # bold italic
-        
+        pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
+        pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_path))
+        addMapping('ChineseFont', 0, 0, 'ChineseFont')
+        addMapping('ChineseFont', 0, 1, 'ChineseFont-Bold')
+        addMapping('ChineseFont', 1, 0, 'ChineseFont-Bold')
+        addMapping('ChineseFont', 1, 1, 'ChineseFont-Bold')
         return True
-    except Exception as e:
-        st.error(f"字型註冊失敗: {e}")
+    except:
         return False
 
-# 初始化字型
 has_font = setup_chinese_fonts()
 
-# --- 2. PDF 生成引擎 (修復標籤解析問題) ---
+# --- 2. PDF 生成引擎 (表格轉文字版) ---
 def create_pdf_report(ai_content, exam_meta):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -119,33 +153,24 @@ def create_pdf_report(ai_content, exam_meta):
     font_name = 'ChineseFont' if has_font else 'Helvetica'
     font_name_bold = 'ChineseFont-Bold' if has_font else 'Helvetica-Bold'
     
-    style_normal = ParagraphStyle(
-        'ChineseNormal', parent=styles['Normal'], fontName=font_name, fontSize=11, leading=16, spaceAfter=6
-    )
-    style_title = ParagraphStyle(
-        'ChineseTitle', parent=styles['Heading1'], fontName=font_name_bold, 
-        fontSize=20, leading=24, alignment=1, spaceAfter=20, textColor=colors.HexColor("#1e3a8a")
-    )
-    style_heading = ParagraphStyle(
-        'ChineseHeading', parent=styles['Heading2'], fontName=font_name_bold, 
-        fontSize=14, leading=18, spaceBefore=15, spaceAfter=10, textColor=colors.HexColor("#2c3e50")
-    )
-
+    style_normal = ParagraphStyle('CN_Normal', parent=styles['Normal'], fontName=font_name, fontSize=11, leading=16, spaceAfter=6)
+    style_title = ParagraphStyle('CN_Title', parent=styles['Heading1'], fontName=font_name_bold, fontSize=20, leading=24, alignment=1, spaceAfter=20, textColor=colors.HexColor("#2c3e50"))
+    style_h2 = ParagraphStyle('CN_H2', parent=styles['Heading2'], fontName=font_name_bold, fontSize=14, leading=18, spaceBefore=12, spaceAfter=6, textColor=colors.HexColor("#1e3a8a"))
+    
     story = []
 
-    # A. 檔頭
-    story.append(Paragraph("台中市北屯區建功國小 試卷審題報告", style_title))
+    # 標題區
+    story.append(Paragraph("台中市北屯區建功國小 智慧審題報告", style_title))
     
+    # 檔頭表格
     header_data = [
         ["試卷資訊", exam_meta['info_str']],
-        ["命題教師", "____________________", "審題教師", "____________________"],
-        ["審查日期", exam_meta['date_str'], "審查系統", "Gemini 3.0 Pro AI"]
+        ["命題教師", "__________________", "審題教師", "__________________"],
+        ["審查日期", exam_meta['date_str'], "AI 模型", "Gemini 3.0 Pro"]
     ]
-    
-    t_header = Table(header_data, colWidths=[2.5*cm, 6*cm, 2.5*cm, 6*cm])
-    t_header.setStyle(TableStyle([
+    t = Table(header_data, colWidths=[2.5*cm, 6*cm, 2.5*cm, 6*cm])
+    t.setStyle(TableStyle([
         ('FONTNAME', (0,0), (-1,-1), font_name),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ('BACKGROUND', (0,0), (0,-1), colors.whitesmoke),
         ('BACKGROUND', (2,1), (2,-1), colors.whitesmoke),
@@ -154,103 +179,61 @@ def create_pdf_report(ai_content, exam_meta):
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('PADDING', (0,0), (-1,-1), 6),
     ]))
-    story.append(t_header)
+    story.append(t)
     story.append(Spacer(1, 1*cm))
 
-    # B. 內容解析
+    # 內容解析
     lines = ai_content.split('\n')
-    in_table = False
-    table_data = []
     
     for line in lines:
         line = line.strip()
         if not line: continue
         
+        # 標題
         if line.startswith('###') or line.startswith('##'):
-            clean_text = line.replace('#', '').strip()
-            story.append(Paragraph(clean_text, style_heading))
+            text = line.replace('#', '').strip()
+            story.append(Paragraph(text, style_h2))
             
+        # 表格列處理 (轉為文字，避免跑版)
         elif line.startswith('|'):
-            if not in_table:
-                in_table = True
-                table_data = []
-            cells = [cell.strip() for cell in line.split('|') if cell]
-            if '---' in cells[0]: continue
-            table_data.append(cells)
+            # 去除 Markdown 表格語法，改為純文字顯示
+            clean_text = line.replace('|', '  ').strip()
+            if '---' in clean_text: continue # 跳過分隔線
+            story.append(Paragraph(clean_text, style_normal))
             
+        # 一般內容
         else:
-            if in_table and table_data:
-                try:
-                    col_count = len(table_data[0])
-                    if col_count > 0:
-                        t = Table(table_data, colWidths=[17*cm/col_count]*col_count)
-                        t.setStyle(TableStyle([
-                            ('FONTNAME', (0,0), (-1,-1), font_name),
-                            ('FONTSIZE', (0,0), (-1,-1), 9),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-                            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-                            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                        ]))
-                        story.append(t)
-                        story.append(Spacer(1, 0.5*cm))
-                except: pass
-                in_table = False
-                table_data = []
-            
-            # 【關鍵修正】使用 Regex 正確替換成對的粗體符號
-            # 舊寫法: replace('**', '<b>') 會導致標籤不閉合
-            # 新寫法: re.sub 確保成對替換
-            formatted_line = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', line)
-            
-            # 處理警示顏色
-            if '❌' in formatted_line or '⚠️' in formatted_line:
-                formatted_line = f'<font color="red">{formatted_line}</font>'
-            
+            # 處理粗體與警示
+            text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', line)
+            if '❌' in text or '⚠️' in text:
+                text = f'<font color="red">{text}</font>'
             try:
-                story.append(Paragraph(formatted_line, style_normal))
-            except Exception:
-                # 【防呆機制】如果標籤解析依然失敗（例如內容含有 < > 符號），則清除所有標籤，只顯示純文字
-                clean_text = re.sub(r'<[^>]+>', '', formatted_line) 
-                story.append(Paragraph(clean_text, style_normal))
-
-    if in_table and table_data:
-        try:
-            col_count = len(table_data[0])
-            if col_count > 0:
-                t = Table(table_data, colWidths=[17*cm/col_count]*col_count)
-                t.setStyle(TableStyle([
-                    ('FONTNAME', (0,0), (-1,-1), font_name),
-                    ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-                    ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ]))
-                story.append(t)
-        except: pass
+                story.append(Paragraph(text, style_normal))
+            except:
+                clean = re.sub(r'<[^>]+>', '', text)
+                story.append(Paragraph(clean, style_normal))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-# --- 3. 試卷資訊擷取 ---
+# --- 3. 輔助函數 ---
 def extract_exam_meta(text, grade, subject):
     import datetime
     today = datetime.date.today().strftime("%Y/%m/%d")
-    meta = {
-        "year": "113學年度", "semester": "下學期", "exam_name": "定期評量",
-        "grade": grade, "subject": subject, "date_str": today
-    }
-    sample = text[:800]
-    match_year = re.search(r'(\d{3})\s*學年度', sample)
-    if match_year: meta['year'] = f"{match_year.group(1)}學年度"
-    match_sem = re.search(r'(上|下)\s*學期', sample)
-    if match_sem: meta['semester'] = f"{match_sem.group(1)}學期"
-    match_exam = re.search(r'(期中|期末|第[一二三]次|定期)評量', sample)
-    if match_exam: meta['exam_name'] = match_exam.group(0)
-    elif "期末" in sample: meta['exam_name'] = "期末評量"
+    meta = {"year": "113學年度", "semester": "下學期", "exam_name": "定期評量", "date_str": today}
+    
+    sample = text[:500]
+    m_year = re.search(r'(\d{3})\s*學年度', sample)
+    if m_year: meta['year'] = m_year.group(0)
+    
+    m_sem = re.search(r'(上|下)\s*學期', sample)
+    if m_sem: meta['semester'] = m_sem.group(0)
+    
+    if "期末" in sample: meta['exam_name'] = "期末評量"
     elif "期中" in sample: meta['exam_name'] = "期中評量"
     
-    meta['info_str'] = f"{meta['year']} {meta['semester']} {meta['grade']} {meta['subject']} {meta['exam_name']}"
+    meta['info_str'] = f"{meta['year']} {meta['semester']} {grade} {subject} {meta['exam_name']}"
     return meta
 
 def extract_pdf_text(file):
@@ -267,24 +250,22 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<div class='login-spacer'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 5vh;'></div>", unsafe_allow_html=True)
         with st.container():
             st.markdown("""
-            <div class='card-box'>
+            <div class='login-card'>
                 <h2 style='text-align: center; color: #1e3a8a; margin-bottom: 20px;'>🔐 建功國小智慧審題系統</h2>
                 <div class='disclaimer-box'>
-                    <div class='disclaimer-title'>⚠️ 使用前請詳閱以下說明：</div>
-                    本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。<br><br>
-                    <b>1. 人工查核機制：</b>AI 生成內容可能存在誤差或不可預期的錯誤（幻覺），最終試卷定稿請務必回歸教師專業判斷。<br>
-                    <b>2. 資料隱私安全：</b>嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。<br>
-                    <b>3. 資料留存規範：</b>本系統不永久留存檔案，上傳之文件將於系統重啟或對話結束後自動銷毀。<br>
-                    <b>4. 風險承擔同意：</b>使用本服務即代表您理解並同意自行評估相關使用風險。<br>
-                    <b>5. 授權使用範圍：</b>本系統無償提供予臺中市北屯區建功國小教師使用，為確保資源永續與經費控管，僅限校內教師內部使用。
+                    <b>⚠️ 使用前請詳閱：</b><br>
+                    1. <b>人工查核：</b>AI 結果僅供參考，請回歸專業判斷。<br>
+                    2. <b>隱私安全：</b>嚴禁上傳個資或機密文件。<br>
+                    3. <b>資料留存：</b>系統重啟後檔案自動銷毀。<br>
+                    4. <b>授權範圍：</b>限校內教師內部使用。
                 </div>
-                <br>
             """, unsafe_allow_html=True)
+            
             password = st.text_input("請輸入校內授權密碼", type="password")
-            if st.button("我同意以上聲明並登入"):
+            if st.button("同意聲明並登入"):
                 if password == st.secrets.get("LOGIN_PASSWORD", "school123"):
                     st.session_state['logged_in'] = True
                     st.rerun()
@@ -311,13 +292,11 @@ def main_app():
             st.session_state['logged_in'] = False
             st.rerun()
 
-    st.markdown("<h1 style='text-align: center; margin-bottom: 20px;'>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
     if st.sidebar.state == "collapsed": st.warning("👈 **老師請注意：請先點擊左上角「>」展開設定年級與科目！**")
 
     # 資料上傳區
-    st.markdown("<h3 style='margin-top: 20px; border-left: 5px solid #2563eb; padding-left: 10px;'>📂 資料上傳區</h3>", unsafe_allow_html=True)
-    st.markdown("<hr style='margin-top:0; margin-bottom: 20px;'>", unsafe_allow_html=True)
-
+    st.markdown("### 📂 資料上傳區")
     col1, col2 = st.columns(2)
     
     with col1:
@@ -361,25 +340,55 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             
             status.write("🧠 Gemini 3.0 Pro 正在執行雙向細目表分析...")
             
+            # --- 恢復專家級提示詞 ---
             prompt = f"""
-            # Role: 台灣國小教育評量專家
-            ## 任務
-            針對 {grade}{subject} 試卷進行審查。
-            範圍：{exam_scope if exam_scope else "未指定"}
-            嚴格度：{strictness}
-            資料基準：{scenario_prompt}
-            ## 參考資料
-            {ref_text[:30000]}
-            ## 試卷內容
-            {exam_text[:20000]}
-            ## 輸出指令
-            請直接輸出報告內容，使用 Markdown 格式 (含表格)：
-            1. **【修改具體建議 (Action Plan)】** (列出 3-5 點具體建議，重大錯誤用 ❌ 標示)
-            2. **Step 1: 命題範圍檢核**
-            3. **Step 2: 題幹與邏輯品質審查**
-            4. **Step 3: 雙向細目表** (表格欄位：單元名稱 | 記憶 | 了解 | 應用 | 分析 | 評鑑 | 創造)
-            5. **Step 4: 難易度分析**
-            6. **Step 5: 素養導向審查**
+            # Role: 台灣國小教育評量暨素養導向命題專家
+            
+            ## 1. 任務目標
+            你是一位精通台灣教育部「108課綱」與測驗編製理論的專家。請針對使用者上傳的「試卷檔案」，進行全面性的審題與品質分析。
+            
+            本次審查資訊：
+            * **年級：** {grade}
+            * **科目：** {subject}
+            * **版本/範圍：** {exam_scope if exam_scope else "未指定"}
+            * **審查嚴格度：** {strictness}
+
+            ## 2. 輸入資料處理規則
+            {scenario_prompt}
+
+            ## 3. 試卷分析流程 (Analysis Workflow)
+            請依序執行以下五大步驟，並產出報告：
+
+            ### Step 1: 【命題範圍檢核】 (Scope Check)
+            * 檢查試題是否「超綱」。
+            * 若有參考教材，指出哪一題超出教材範圍；若無教材，指出哪一題超出 108 課綱該年段的學習內容。
+
+            ### Step 2: 【題幹與邏輯品質審查】 (Quality Control)
+            * **定義一致性：** 檢查專有名詞、符號使用是否與課本/課綱一致。
+            * **誘答項合理性：** 針對選擇題，檢查錯誤選項是否具備誘答力，或是有明顯邏輯漏洞。
+            * **題意清晰度：** 檢查是否有語意不清、雙重否定或容易產生歧義的敘述。
+
+            ### Step 3: 【雙向細目表核算】 (Two-Way Specification Table)
+            請繪製一個 Markdown 表格，將試卷中的**「題號」**填入對應的格子中。
+            * 欄位包含：單元名稱 | 記憶 | 了解 | 應用 | 分析 | 評鑑 | 創造
+            * 最末列：請統計各認知向度的「分數比重 (%)」。
+
+            ### Step 4: 【難易度與負擔分析】 (Difficulty & Load)
+            * **難度預測：** 分析整份試卷的難易度配置（直球題 vs. 變形題）。
+            * **成績分佈預測：** 請依據題目難度，預測班級學生的成績分佈比例。
+
+            ### Step 5: 【素養導向深度審查】 (Competency Review)
+            * **防偽快篩：** 抓出「假素養警示」（題目情境與解題無關，或純閱讀測驗）。
+            * **真素養特徵：** 標註符合真實生活情境且需運用知識解決問題的優良試題。
+
+            ## 4. 輸出產出 (Final Output)
+            請彙整以上分析，提供一份結構清晰的報告。
+            **請務必將【修改具體建議 (Action Plan)】放在報告的最前面！**
+            若有嚴重錯誤，請用 ❌ 標示；若有建議，請用 ⚠️ 標示。
+            
+            ---
+            【試卷原始內容】：
+            {exam_text[:25000]}
             """
             
             response = model.generate_content(prompt)
@@ -391,6 +400,8 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             status.update(label="✅ 分析完成！", state="complete", expanded=False)
             
             st.subheader("📊 審題報告預覽")
+            
+            # 下載按鈕
             st.download_button(
                 label="📥 下載 PDF 正式報告 (含簽核欄)",
                 data=pdf_file,
@@ -399,26 +410,17 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
                 type="primary"
             )
             
-            # 卡片預覽
-            sections = re.split(r'(Step \d:|【修改具體建議)', ai_report)
-            current_text = ""
-            for part in sections:
-                if re.match(r'(Step \d:|【修改具體建議)', part):
-                    if current_text.strip(): display_card(current_text)
-                    current_text = "### " + part
-                else:
-                    current_text += part
-            if current_text.strip(): display_card(current_text)
+            # 報告卡片呈現 (修正版：直接渲染，不切割，避免跑版)
+            st.markdown(f"""
+            <div class='report-card'>
+                {ai_report.replace('❌', '❌ ').replace('⚠️', '⚠️ ')}
+            </div>
+            """, unsafe_allow_html=True)
 
         except Exception as e:
             status.update(label="❌ 發生錯誤", state="error")
             st.error(f"錯誤：{e}")
             if "429" in str(e): st.warning("⚠️ 配額已滿，請稍後再試。")
-
-def display_card(text):
-    has_warning = "❌" in text or "⚠️" in text
-    if has_warning: st.error(text, icon="⚠️")
-    else: st.info(text, icon="✅")
 
 if __name__ == "__main__":
     if st.session_state['logged_in']: main_app()
