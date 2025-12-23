@@ -2,178 +2,275 @@ import streamlit as st
 import google.generativeai as genai
 from io import BytesIO
 from docx import Document
-from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-# --- 1. 環境設定與套件載入 ---
-st.set_page_config(page_title="國小試卷 AI 審題系統 (旗艦版)", page_icon="💯", layout="wide")
-
-# 嘗試匯入 PDF 處理套件 (相容性處理)
+# 嘗試匯入 PDF 套件
 try:
     from pypdf import PdfReader
 except ImportError:
     import PyPDF2 as PdfReader
 
-# --- 2. 側邊欄：設定與資訊 ---
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2997/2997292.png", width=80)
-    st.title("⚙️ 審題控制台")
-    
-    st.markdown("### 🎯 審題重點")
-    check_zhuyin = st.checkbox("國語：檢查注音與字詞", value=True)
-    check_logic = st.checkbox("數理：檢查圖表邏輯", value=True)
-    check_rec = st.checkbox("建議：提供優化推薦", value=True)
-    
-    st.markdown("---")
-    strictness = st.slider("嚴格程度 (1=鼓勵為主, 5=極度嚴格)", 1, 5, 4)
-    
-    st.markdown("---")
-    st.success("🧠 模型載入中：\nGemini 3.0 Pro (Preview)")
-    st.caption("目前使用您帳號中最強大的 Index 27 模型，具備最先進的邏輯推理能力。")
-
-# --- 3. 主畫面設計 ---
-st.title("💯 國小試卷 AI 審題系統")
-st.markdown(
-    """
-    <style>
-    .big-font { font-size:18px !important; color: #555; }
-    </style>
-    <div class='big-font'>
-    專為國小老師打造的智慧助手。上傳 PDF 試卷，AI 將針對<b>「國語注音」</b>、<b>「圖形邏輯」</b>與<b>「試題品質」</b>進行深度健檢。
-    </div>
-    """, 
-    unsafe_allow_html=True
+# --- 0. 全局設定與 CSS 美化 ---
+st.set_page_config(
+    page_title="國小試卷智慧審題系統 V3.2",
+    page_icon="🏫",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# --- 4. API 連線設定 (從 Secrets 讀取) ---
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key)
-    # 【關鍵修改】鎖定您清單中的第 27 項：最強 3.0 Pro 預覽版
-    model = genai.GenerativeModel('models/gemini-3-pro-preview')
-except Exception as e:
-    st.error("❌ API Key 設定錯誤，請檢查 Streamlit Secrets。")
-    st.stop()
+# 自訂 CSS
+st.markdown("""
+    <style>
+    .stApp { background-color: #f8f9fa; }
+    .card-container {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 2rem;
+    }
+    h1, h2, h3 { color: #2c3e50; }
+    .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
+    .disclaimer { font-size: 0.8rem; color: #7f8c8d; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 5. 檔案處理核心 ---
-uploaded_file = st.file_uploader("📂 請將試卷 PDF 拖曳至此 (支援國語、數學、自然、社會)", type=['pdf'])
+# --- 1. Session State 管理 ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
 
-if uploaded_file is not None:
-    st.info(f"📄 已讀取檔案：{uploaded_file.name}，準備進行 AI 分析...")
+# --- 2. 登入頁面 ---
+def login_page():
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<div class='card-container'>", unsafe_allow_html=True)
+        st.title("🔐 試卷審題系統登入")
+        st.markdown("---")
+        st.warning("⚠️ **免責聲明**：本系統由 AI 輔助，結果僅供參考。請勿上傳機密個資。")
+        st.markdown("---")
+        
+        password = st.text_input("請輸入授權密碼", type="password")
+        if st.button("同意聲明並登入"):
+            # 從 Secrets 讀取密碼 (若未設定則預設 school123)
+            secret_pass = st.secrets.get("LOGIN_PASSWORD", "school123")
+            if password == secret_pass:
+                st.session_state['logged_in'] = True
+                st.rerun()
+            else:
+                st.error("❌ 密碼錯誤")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # 建立分析按鈕
-    if st.button("🚀 啟動 Gemini 3.0 深度審題", type="primary"):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+# --- 3. 主應用程式 ---
+def main_app():
+    # 強制展開側邊欄
+    st.markdown("""<style>[data-testid="collapsedControl"] {display: none}</style>""", unsafe_allow_html=True)
+    
+    # --- 側邊欄：依照您的順位編排 ---
+    with st.sidebar:
+        st.image("https://cdn-icons-png.flaticon.com/512/3426/3426653.png", width=60)
+        st.title("⚙️ 審題參數設定")
+        st.markdown("---")
+        
+        # A. 選擇模型
+        st.subheader("A. 選擇模型")
+        model_choice = st.selectbox(
+            "AI 大腦版本",
+            ["Gemini 1.5 Pro (付費穩定版)", "Gemini 2.0 Flash (快速免費版)", "Gemini 3.0 Pro (預覽旗艦版)"],
+            index=0
+        )
+        
+        # B. 選擇年級
+        st.subheader("B. 選擇年級")
+        grade = st.selectbox(
+            "適用對象",
+            ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"]
+        )
+        
+        # C. 選擇科目
+        st.subheader("C. 選擇科目")
+        subject = st.selectbox(
+            "測驗科目",
+            ["國語", "數學", "英語", "自然", "社會", "生活"]
+        )
+        
+        # D. 考試範圍
+        st.subheader("D. 考試範圍")
+        exam_scope = st.text_input(
+            "輸入單元或頁數",
+            placeholder="例如：第1單元～第3單元",
+            help="AI 將依此範圍檢查是否超綱"
+        )
+        
+        # F. 嚴格程度 (跳過 E)
+        st.subheader("F. 嚴格程度")
+        strictness = st.select_slider(
+            "AI 審查力道",
+            options=["溫柔 (鼓勵)", "標準", "嚴格 (高標)", "魔鬼 (找碴)"],
+            value="嚴格 (高標)"
+        )
+        
+        st.markdown("---")
+        if st.button("登出系統"):
+            st.session_state['logged_in'] = False
+            st.rerun()
+
+    # --- 主畫面 ---
+    st.title(f"🏫 {subject}試卷智慧審題 ({grade})")
+    
+    st.markdown("<div class='card-container'>", unsafe_allow_html=True)
+    st.subheader("📁 資料上傳區")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.info("📄 **1. 上傳試卷 (必要)**")
+        uploaded_exam = st.file_uploader("請拖曳試卷 PDF", type=['pdf'], key="exam")
+        # 檔案大小檢查 (10MB)
+        if uploaded_exam and uploaded_exam.size > 10 * 1024 * 1024:
+            st.error("⚠️ 檔案過大，請上傳 10MB 以下的檔案。")
+            st.stop()
+    
+    with col2:
+        # 動態標題：讓老師知道該傳哪個年級科目的課本
+        st.success(f"📘 **2. 上傳 {grade}{subject} 課本/習作 (選填)**")
+        uploaded_refs = st.file_uploader(
+            "供 AI 比對範圍 (可多選)", 
+            type=['pdf'], 
+            key="ref", 
+            accept_multiple_files=True 
+        )
+        st.caption(f"💡 AI 將依據此教材，檢查題目是否超出 **{exam_scope if exam_scope else '全冊'}** 範圍。")
+        
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # 執行按鈕
+    if uploaded_exam:
+        if st.button("🚀 啟動 AI 審題", type="primary"):
+            process_review(uploaded_exam, uploaded_refs, model_choice, grade, subject, strictness, exam_scope)
+
+# --- 4. 核心邏輯 ---
+def process_review(exam_file, ref_files, model_choice, grade, subject, strictness, exam_scope):
+    
+    with st.container():
+        st.markdown("<div class='card-container'>", unsafe_allow_html=True)
+        st.subheader("📊 分析報告")
+        status = st.status("🔍 AI 助教啟動中...", expanded=True)
         
         try:
-            # 階段 A: 讀取 PDF 文字
-            status_text.text("🔍 正在進行光學字元分析 (OCR)...")
-            progress_bar.progress(20)
+            # 設定 API Key
+            api_key = st.secrets["GEMINI_API_KEY"]
+            genai.configure(api_key=api_key)
             
-            try:
-                reader = PdfReader(uploaded_file)
-                text_content = ""
-                for page in reader.pages:
-                    text_content += page.extract_text() + "\n"
-            except Exception as e:
-                st.error(f"PDF 讀取失敗：{e}")
-                st.stop()
-
-            # 階段 B: 建構超級提示詞 (Prompt Engineering)
-            status_text.text("🧠 Gemini 3.0 正在進行深度邏輯推理...")
-            progress_bar.progress(50)
-
-            # 根據側邊欄勾選，動態調整指令
-            focus_areas = []
-            if check_zhuyin: focus_areas.append("【國語科重點】：嚴格檢查注音符號使用是否規範、是否有錯別字、語句是否通順。")
-            if check_logic: focus_areas.append("【數理科重點】：檢查題目敘述與圖表（若文字有描述）的邏輯一致性，確認數據合理性。")
-            if check_rec: focus_areas.append("【優化推薦】：針對題目鑑別度提供具體修改建議。")
+            model_map = {
+                "Gemini 1.5 Pro (付費穩定版)": "models/gemini-1.5-pro",
+                "Gemini 2.0 Flash (快速免費版)": "models/gemini-2.0-flash",
+                "Gemini 3.0 Pro (預覽旗艦版)": "models/gemini-3-pro-preview"
+            }
+            model = genai.GenerativeModel(model_map[model_choice])
             
-            focus_text = "\n".join(focus_areas)
+            # 讀取試卷
+            status.write("📄 正在讀取試卷...")
+            exam_text = extract_pdf_text(exam_file)
+            
+            # 讀取參考教材
+            ref_prompt = ""
+            if ref_files:
+                status.write(f"📘 正在分析 {len(ref_files)} 份參考教材...")
+                ref_text = ""
+                for f in ref_files:
+                    ref_text += extract_pdf_text(f) + "\n"
+                
+                ref_prompt = f"""
+                【參考教材內容 (課本/習作)】：
+                {ref_text[:60000]} 
+                
+                【本次考試範圍】：{exam_scope if exam_scope else "未指定 (請參考全部教材)"}
+                (請嚴格比對：題目是否超出上述範圍？)
+                """
+            else:
+                ref_prompt = "【參考教材】：未提供 (請依據該年級課綱常識判斷)"
 
+            # 組合 Prompt
+            status.write(f"🧠 {model_choice} 正在進行 {grade}{subject} 深度審查...")
+            
             prompt = f"""
-            你是一位擁有 20 年經驗的國小資深教務主任與命題教授。
-            請使用目前最強大的 'Gemini 3.0 Pro' 邏輯能力，針對這份試卷進行「逐題審查」。
+            你是一位台灣資深國小教師與命題委員。
+            任務：審查 **{grade} {subject}** 試卷。
+            嚴格度：**{strictness}**。
+            考試範圍：**{exam_scope}**。
 
-            🎯 **審題目標與要求：**
-            1. **嚴格度**：{strictness} 分 (滿分 5 分)
-            2. **分析重點**：
-            {focus_text}
-
-            ---
-            
-            📝 **請輸出結構化的審題報告 (請直接使用繁體中文)：**
-
-            ### 1. 試卷整體概況
-            * **適用年級推測**：(請依內容判斷)
-            * **難易度分析**：(太簡單/適中/偏難)
-            * **知識點分佈**：(涵蓋了哪些單元)
-
-            ### 2. 深度問題審查 (請列點說明)
-            * **❌ 潛在錯誤與風險**：
-                * (例如：第 3 題的題意敘述不清，容易造成學生誤解...)
-                * (例如：國語注音 'ㄅ' 的使用情境似乎有誤...)
-                * (例如：數學應用題的數字邏輯不合理...)
-            
-            * **⚠️ 圖形與排版檢核 (文字邏輯推論)**：
-                * (請根據題目文字，檢查是否有 '如圖所示' 但敘述不完整的情況)
-            
-            ### 3. 優點與亮點
-            * (這份試卷出得好的地方)
-
-            ### 4. 具體修改建議 (Action Items)
-            * (請針對上述錯誤，給出具體的改寫範例)
+            請執行以下檢查：
+            1. **範圍檢查 (Critical)**：題目是否超出「{exam_scope}」的教學範圍？(若有上傳教材，請嚴格比對)。
+            2. **適齡檢查**：文字與題意是否符合 {grade} 學生程度？
+            3. **邏輯與排版**：檢查是否有注音錯誤、圖表數據矛盾、選項誘答力不足等問題。
 
             ---
-            **試卷原始文字內容：**
-            {text_content[:20000]}
+            {ref_prompt}
+            ---
+            【試卷內容】：
+            {exam_text[:25000]}
+            ---
+            
+            請輸出專業報告 (繁體中文)：
+            1. **整體評語** (難易度、範圍符合度)
+            2. **❌ 超綱與重大瑕疵** (請列出題號)
+            3. **逐題優化建議**
+            4. **優點亮點**
             """
-
-            # 階段 C: 呼叫 AI
+            
             response = model.generate_content(prompt)
             ai_report = response.text
             
-            progress_bar.progress(90)
-            status_text.text("📝 正在生成 Word 報表...")
-
-            # 階段 D: 製作精美 Word 檔
-            doc = Document()
+            # 產生 Word
+            status.write("📝 排版報告中...")
+            bio = generate_word_report(ai_report, model_choice, grade, subject, exam_scope)
             
-            # Word 標題樣式
-            title = doc.add_heading('國小試卷 AI 審題報告', 0)
-            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            status.update(label="✅ 分析完成！", state="complete", expanded=False)
             
-            doc.add_paragraph(f"審題模型：Gemini 3.0 Pro Preview (Index 27)")
-            doc.add_paragraph(f"檔案名稱：{uploaded_file.name}")
-            doc.add_paragraph(f"審題時間：{strictness}/5 嚴格度")
-            doc.add_paragraph("-" * 40)
-            
-            # 寫入 AI 內容
-            doc.add_paragraph(ai_report)
-            
-            # 存入記憶體
-            bio = BytesIO()
-            doc.save(bio)
-            
-            progress_bar.progress(100)
-            status_text.text("✅ 分析完成！")
-            st.balloons()
-
-            # --- 6. 顯示結果與下載 ---
-            st.markdown("---")
-            st.subheader("📊 審題報告預覽")
-            st.write(ai_report)
-            
-            st.markdown("### 📥 下載專區")
-            st.download_button(
-                label="下載 Word 完整報告 (.docx)",
-                data=bio.getvalue(),
-                file_name=f"審題報告_{uploaded_file.name}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary"
-            )
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f"<div style='background:#f0f2f6;padding:15px;border-radius:10px;'>{ai_report}</div>", unsafe_allow_html=True)
+            with col2:
+                st.download_button(
+                    label="📥 下載 Word 報告",
+                    data=bio.getvalue(),
+                    file_name=f"{grade}{subject}_審題報告.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary"
+                )
 
         except Exception as e:
-            st.error(f"分析過程發生錯誤：{e}")
-            st.warning("💡 若長時間無回應，可能是 3.0 Pro 預覽版正忙碌，請稍後再試。")
+            status.update(label="❌ 發生錯誤", state="error")
+            st.error(f"錯誤：{e}")
+            if "429" in str(e):
+                st.warning("⚠️ 配額已滿，請切換至 Flash 模型。")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# --- 輔助函數 ---
+def extract_pdf_text(file):
+    try:
+        reader = PdfReader(file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except:
+        return "[PDF 讀取失敗]"
+
+def generate_word_report(text, model, grade, subject, scope):
+    doc = Document()
+    doc.add_heading(f'{grade} {subject} 審題報告', 0)
+    doc.add_paragraph(f"範圍：{scope}")
+    doc.add_paragraph(f"模型：{model}")
+    doc.add_paragraph("-" * 30)
+    doc.add_paragraph(text)
+    bio = BytesIO()
+    doc.save(bio)
+    return bio
+
+if __name__ == "__main__":
+    if st.session_state['logged_in']:
+        main_app()
+    else:
+        login_page()
