@@ -224,9 +224,9 @@ def generate_word_report_doc(text, exam_meta):
     table = doc.add_table(rows=1, cols=2)
     table.autofit = True
     c1 = table.cell(0, 0)
-    c1.text = "命題教師：__________________"
+    c1.text = "命題教師："
     c2 = table.cell(0, 1)
-    c2.text = "審題教師：__________________"
+    c2.text = "審題教師："
     
     doc.add_paragraph("\n") 
     
@@ -339,7 +339,7 @@ def main_app():
     
     with col2:
         st.markdown(f"<span class='upload-label'>📘 2. 上傳 {grade}{subject} 課本/習作 (選填)</span>", unsafe_allow_html=True)
-        st.markdown("<span class='upload-sub'>如上傳可使用 AI 精準比對，未上傳則依據 108 課綱比對。</span>", unsafe_allow_html=True)
+        st.markdown("<span class='upload-sub'>如上傳可使用 AI 精準比對，未上傳則依據 108 課綱比對（不精準，請務自行確認內容）。</span>", unsafe_allow_html=True)
         uploaded_refs = st.file_uploader("上傳教材", type=['pdf'], key="ref", accept_multiple_files=True, label_visibility="collapsed")
 
     st.markdown("<br>", unsafe_allow_html=True)
