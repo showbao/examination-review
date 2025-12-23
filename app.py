@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 自訂 CSS (白底灰邊簡約風格)
+# 自訂 CSS (白底灰邊簡約風格 - 保持不變)
 st.markdown("""
     <style>
     /* 全局背景 */
@@ -53,7 +53,7 @@ st.markdown("""
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
 
-    /* 3. 審題報告卡片 (白底 + 灰邊 + 陰影) */
+    /* 3. 審題報告卡片 */
     .report-card {
         background-color: white;
         padding: 3rem;
@@ -96,13 +96,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. 進階 Word 生成引擎 (支援表格與粗體解析) ---
+# --- 1. Word 生成引擎 (V6.6 修正版：解決表格錯位與過度列點) ---
 def parse_markdown_to_word(doc, text):
     """
-    將 Markdown 文字轉換為 Word 格式，支援：
-    1. 自動識別表格 (| header |)
-    2. 自動識別標題 (###)
-    3. 自動識別粗體 (**text**) 並移除星號
+    將 Markdown 文字轉換為 Word 格式，針對使用者需求優化排版：
+    1. 表格：精準對齊，解決空白格位移問題。
+    2. 清單：針對「問題、建議、現狀」等關鍵字，自動移除圓點符號，改為一般段落。
     """
     lines = text.split('\n')
     table_buffer = []
@@ -129,15 +128,26 @@ def parse_markdown_to_word(doc, text):
             doc.add_heading(line.replace('## ', ''), level=1)
         # 清單與一般文字
         else:
-            # 建立段落
             p = doc.add_paragraph()
-            # 處理清單符號 (將 Markdown 的 * 轉為 Word 的項目符號概念，或直接保留文字)
+            
+            clean_line = line
+            is_bullet = False
+            
+            # 判斷是否為清單
             if line.startswith('* ') or line.startswith('- '):
+                clean_line = line[2:].strip()
+                
+                # 【關鍵修正 2】: 檢查內容是否為「問題、建議、分析...」
+                # 如果是這些開頭，雖然 Markdown 有 *，但在 Word 裡我們不要圓點，要變成一般段落
+                # 使用 Regex 偵測粗體開頭的關鍵字 (例如: **問題**：...)
+                if re.match(r'^(\*\*)?(問題|建議|現狀|分析|依據|結論|優點)', clean_line):
+                    is_bullet = False # 強制取消列點
+                else:
+                    is_bullet = True # 其他普通的清單保留列點
+            
+            if is_bullet:
                 p.style = 'List Bullet'
-                clean_line = line[2:] # 移除開頭的 "* "
-            else:
-                clean_line = line
-
+            
             # --- C. 粗體解析 (**text**) ---
             # 使用 Regex 將字串切分為：[一般文字, **粗體**, 一般文字, ...]
             parts = re.split(r'(\*\*.*?\*\*)', clean_line)
@@ -155,14 +165,19 @@ def parse_markdown_to_word(doc, text):
         create_word_table(doc, table_buffer)
 
 def create_word_table(doc, markdown_lines):
-    """將 Markdown 表格字串轉換為 Word 表格"""
+    """
+    將 Markdown 表格字串轉換為 Word 表格
+    【關鍵修正 1】：嚴格處理空白儲存格，防止資料錯位
+    """
     try:
         # 過濾掉分隔線 (例如 |---|---|)
         rows = [line for line in markdown_lines if '---' not in line]
         if not rows: return
 
-        # 計算欄位數
-        headers = [c.strip() for c in rows[0].split('|') if c.strip()]
+        # 解析標題列 (找出總欄位數)
+        # 技巧：去除首尾的 | 後再 split，這樣才是真正的資料格
+        header_line = rows[0].strip().strip('|')
+        headers = [h.strip() for h in header_line.split('|')]
         col_count = len(headers)
         
         # 建立 Word 表格
@@ -181,34 +196,27 @@ def create_word_table(doc, markdown_lines):
 
         # 填入內容
         for line in rows[1:]:
-            cells_data = [c.strip() for c in line.split('|') if c.strip() or c == ""] # 允許空字串
-            # 補齊或截斷欄位以符合標題數
-            if len(cells_data) > col_count: cells_data = cells_data[:col_count]
+            # 先去除首尾的 | (Markdown表格通常頭尾都有 |)
+            clean_line = line.strip().strip('|')
+            # 使用 split('|')，不加參數，這樣會保留空字串 (代表空白格)
+            cells_data = clean_line.split('|')
             
-            # 因為 split('|') 頭尾可能會產生空字串，這裡做一點清洗
-            # 簡單做法：重新抓取
-            clean_data = []
-            raw_parts = line.split('|')
-            # 通常 Markdown 表格是 | A | B |，split後會是 ['', 'A', 'B', '']
-            for part in raw_parts:
-                if part.strip() != "": 
-                    clean_data.append(part.strip())
-                elif part == "" and len(clean_data) < col_count and len(clean_data) > 0:
-                     # 處理中間的空白儲存格
-                     pass
-            
-            # 使用更穩健的填充方式
+            # 建立新列
             row_cells = table.add_row().cells
+            
             for i, cell_text in enumerate(cells_data):
-                if i < len(row_cells):
-                    row_cells[i].text = cell_text.replace('**', '') # 表格內移除粗體符號，保持整潔
+                if i < col_count and i < len(row_cells):
+                    # 清理文字並移除粗體符號(表格內保持整潔)
+                    final_text = cell_text.strip().replace('**', '')
+                    row_cells[i].text = final_text
+                    
     except Exception as e:
-        doc.add_paragraph(f"[表格轉換失敗，請參閱原始報告]")
+        doc.add_paragraph(f"[表格轉換異常，請手動調整]")
 
 def generate_word_report_doc(text, exam_meta):
     doc = Document()
     
-    # 設定中文字型 (選用，避免方框)
+    # 設定中文字型
     doc.styles['Normal'].font.name = 'Microsoft JhengHei'
     doc.styles['Normal']._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     
@@ -387,7 +395,7 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             
             status.write("🧠 Gemini 3.0 Pro 正在執行雙向細目表分析...")
             
-            # --- 專家級提示詞 ---
+            # --- 專家級提示詞 (V4 嚴謹版) ---
             prompt = f"""
             # Role: 台灣國小教育評量暨素養導向命題專家
             
@@ -460,9 +468,11 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             )
             
             # 卡片呈現 (直接顯示，修復 DeltaGenerator 問題)
-            st.markdown('<div class="report-card">', unsafe_allow_html=True)
-            st.markdown(ai_report)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class='report-card'>
+                {st.markdown(ai_report) or ""} 
+            </div>
+            """, unsafe_allow_html=True)
             
         except Exception as e:
             status.update(label="❌ 發生錯誤", state="error")
