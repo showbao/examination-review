@@ -1,10 +1,11 @@
 import streamlit as st
 import google.generativeai as genai
 from io import BytesIO
-import re  # <--- 關鍵修正：補上這個模組
-from docx import Document 
-from docx.shared import Pt 
-from docx.enum.text import WD_ALIGN_PARAGRAPH 
+import re
+from docx import Document
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 
 # 嘗試匯入 PDF 讀取套件
 try:
@@ -20,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 自訂 CSS (針對您要求的白底灰邊簡約風格)
+# 自訂 CSS (白底灰邊簡約風格)
 st.markdown("""
     <style>
     /* 全局背景 */
@@ -31,12 +32,12 @@ st.markdown("""
     h1 { color: #2c3e50; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; text-align: center; }
     h2, h3 { color: #34495e; font-weight: 700; }
     
-    /* 1. 登入區卡片 (白底灰邊) */
+    /* 1. 登入區卡片 */
     .login-card {
         background-color: white;
         padding: 2.5rem;
         border-radius: 12px;
-        border: 1px solid #d1d5db; /* 灰色邊框 */
+        border: 1px solid #d1d5db;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
     
@@ -46,26 +47,22 @@ st.markdown("""
     
     div[data-testid="stFileUploader"] {
         background-color: white;
-        border: 1px solid #d1d5db; /* 灰色邊框 */
-        border-radius: 10px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-        transition: border-color 0.3s;
-    }
-    div[data-testid="stFileUploader"]:hover {
-        border-color: #6b7280;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
 
-    /* 3. 審題報告容器 (單一整合卡片，解決跑版問題) */
+    /* 3. 審題報告卡片 (白底 + 灰邊 + 陰影) */
     .report-card {
         background-color: white;
         padding: 3rem;
         border-radius: 12px;
-        border: 1px solid #d1d5db; /* 灰色邊框 */
+        border: 1px solid #d1d5db;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         margin-top: 1.5rem;
         margin-bottom: 2rem;
-        line-height: 1.8; /* 增加行距，提升閱讀體驗 */
+        line-height: 1.8;
     }
     
     /* 4. 按鈕美化 */
@@ -80,18 +77,12 @@ st.markdown("""
         box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3) !important;
     }
     
-    /* 5. 免責聲明 (復原為完整版樣式) */
+    /* 5. 提示框優化 */
     .disclaimer-box {
-        background-color: #fff3cd;
-        border: 1px solid #ffeeba;
-        color: #856404;
-        padding: 15px;
-        border-radius: 8px;
-        font-size: 0.9rem;
-        line-height: 1.6;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        background-color: #fff8e1; border-left: 5px solid #ffc107; color: #856404;
+        padding: 15px; border-radius: 4px; font-size: 0.95rem; line-height: 1.6;
+        margin-bottom: 20px;
     }
-    .disclaimer-title { font-weight: bold; margin-bottom: 5px; font-size: 1rem; }
     
     /* 隱藏預設元素 */
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
@@ -105,9 +96,121 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. Word 生成引擎 (取代 PDF) ---
-def generate_word_report(text, exam_meta):
+# --- 1. 進階 Word 生成引擎 (支援表格與粗體解析) ---
+def parse_markdown_to_word(doc, text):
+    """
+    將 Markdown 文字轉換為 Word 格式，支援：
+    1. 自動識別表格 (| header |)
+    2. 自動識別標題 (###)
+    3. 自動識別粗體 (**text**) 並移除星號
+    """
+    lines = text.split('\n')
+    table_buffer = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line: continue
+        
+        # --- A. 表格處理邏輯 ---
+        if line.startswith('|'):
+            table_buffer.append(line)
+            continue
+        else:
+            # 如果之前有緩存的表格，先把它畫出來
+            if table_buffer:
+                create_word_table(doc, table_buffer)
+                table_buffer = [] # 清空緩存
+
+        # --- B. 一般文本處理 ---
+        # 標題
+        if line.startswith('### '):
+            doc.add_heading(line.replace('### ', ''), level=2)
+        elif line.startswith('## '):
+            doc.add_heading(line.replace('## ', ''), level=1)
+        # 清單與一般文字
+        else:
+            # 建立段落
+            p = doc.add_paragraph()
+            # 處理清單符號 (將 Markdown 的 * 轉為 Word 的項目符號概念，或直接保留文字)
+            if line.startswith('* ') or line.startswith('- '):
+                p.style = 'List Bullet'
+                clean_line = line[2:] # 移除開頭的 "* "
+            else:
+                clean_line = line
+
+            # --- C. 粗體解析 (**text**) ---
+            # 使用 Regex 將字串切分為：[一般文字, **粗體**, 一般文字, ...]
+            parts = re.split(r'(\*\*.*?\*\*)', clean_line)
+            for part in parts:
+                if part.startswith('**') and part.endswith('**'):
+                    # 這是粗體，移除 ** 並加粗
+                    run = p.add_run(part[2:-2])
+                    run.bold = True
+                else:
+                    # 這是一般文字
+                    p.add_run(part)
+
+    # 處理最後可能遺留的表格
+    if table_buffer:
+        create_word_table(doc, table_buffer)
+
+def create_word_table(doc, markdown_lines):
+    """將 Markdown 表格字串轉換為 Word 表格"""
+    try:
+        # 過濾掉分隔線 (例如 |---|---|)
+        rows = [line for line in markdown_lines if '---' not in line]
+        if not rows: return
+
+        # 計算欄位數
+        headers = [c.strip() for c in rows[0].split('|') if c.strip()]
+        col_count = len(headers)
+        
+        # 建立 Word 表格
+        table = doc.add_table(rows=1, cols=col_count)
+        table.style = 'Table Grid' # 加上格線
+        
+        # 填入標題
+        hdr_cells = table.rows[0].cells
+        for i, header_text in enumerate(headers):
+            if i < len(hdr_cells):
+                hdr_cells[i].text = header_text
+                # 標題加粗
+                for paragraph in hdr_cells[i].paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+
+        # 填入內容
+        for line in rows[1:]:
+            cells_data = [c.strip() for c in line.split('|') if c.strip() or c == ""] # 允許空字串
+            # 補齊或截斷欄位以符合標題數
+            if len(cells_data) > col_count: cells_data = cells_data[:col_count]
+            
+            # 因為 split('|') 頭尾可能會產生空字串，這裡做一點清洗
+            # 簡單做法：重新抓取
+            clean_data = []
+            raw_parts = line.split('|')
+            # 通常 Markdown 表格是 | A | B |，split後會是 ['', 'A', 'B', '']
+            for part in raw_parts:
+                if part.strip() != "": 
+                    clean_data.append(part.strip())
+                elif part == "" and len(clean_data) < col_count and len(clean_data) > 0:
+                     # 處理中間的空白儲存格
+                     pass
+            
+            # 使用更穩健的填充方式
+            row_cells = table.add_row().cells
+            for i, cell_text in enumerate(cells_data):
+                if i < len(row_cells):
+                    row_cells[i].text = cell_text.replace('**', '') # 表格內移除粗體符號，保持整潔
+    except Exception as e:
+        doc.add_paragraph(f"[表格轉換失敗，請參閱原始報告]")
+
+def generate_word_report_doc(text, exam_meta):
     doc = Document()
+    
+    # 設定中文字型 (選用，避免方框)
+    doc.styles['Normal'].font.name = 'Microsoft JhengHei'
+    doc.styles['Normal']._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     
     # 標題
     heading = doc.add_heading('台中市北屯區建功國小 智慧審題報告', 0)
@@ -128,22 +231,10 @@ def generate_word_report(text, exam_meta):
     c2 = table.cell(0, 1)
     c2.text = "審題教師：__________________"
     
-    doc.add_paragraph("\n") # 空行
+    doc.add_paragraph("\n") 
     
-    # 寫入 AI 報告內容
-    for line in text.split('\n'):
-        line = line.strip()
-        if not line: continue
-        
-        if line.startswith('### '):
-            doc.add_heading(line.replace('### ', ''), level=2)
-        elif line.startswith('## '):
-            doc.add_heading(line.replace('## ', ''), level=1)
-        elif line.startswith('**') and line.endswith('**'):
-            p = doc.add_paragraph()
-            p.add_run(line.replace('**', '')).bold = True
-        else:
-            doc.add_paragraph(line)
+    # 呼叫解析器
+    parse_markdown_to_word(doc, text)
             
     bio = BytesIO()
     doc.save(bio)
@@ -186,7 +277,7 @@ def extract_pdf_text(file):
     except:
         return "[PDF 讀取失敗]"
 
-# --- 3. 登入頁 (還原完整版免責聲明) ---
+# --- 3. 登入頁 ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 def login_page():
@@ -296,6 +387,7 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             
             status.write("🧠 Gemini 3.0 Pro 正在執行雙向細目表分析...")
             
+            # --- 專家級提示詞 ---
             prompt = f"""
             # Role: 台灣國小教育評量暨素養導向命題專家
             
@@ -353,7 +445,7 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             ai_report = response.text
             
             status.write("📝 正在製作 Word 報告...")
-            word_file = generate_word_report(ai_report, exam_meta)
+            word_file = generate_word_report_doc(ai_report, exam_meta)
             
             status.update(label="✅ 分析完成！", state="complete", expanded=False)
             
@@ -367,11 +459,10 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
                 type="primary"
             )
             
-            st.markdown(f"""
-            <div class='report-card'>
-                {st.markdown(ai_report) or ""} 
-            </div>
-            """, unsafe_allow_html=True)
+            # 卡片呈現 (直接顯示，修復 DeltaGenerator 問題)
+            st.markdown('<div class="report-card">', unsafe_allow_html=True)
+            st.markdown(ai_report)
+            st.markdown('</div>', unsafe_allow_html=True)
             
         except Exception as e:
             status.update(label="❌ 發生錯誤", state="error")
