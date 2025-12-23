@@ -12,8 +12,8 @@ except ImportError:
 
 # --- 0. 全局設定與 CSS 美化 ---
 st.set_page_config(
-    page_title="國小試卷智慧審題系統 V3.2",
-    page_icon="🏫",
+    page_title="國小試卷智慧審題系統 V3.4 (專家版)",
+    page_icon="🎓",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -32,6 +32,8 @@ st.markdown("""
     h1, h2, h3 { color: #2c3e50; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
     .disclaimer { font-size: 0.8rem; color: #7f8c8d; }
+    /* 優化表格顯示 */
+    table { width: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -65,7 +67,7 @@ def main_app():
     # 強制展開側邊欄
     st.markdown("""<style>[data-testid="collapsedControl"] {display: none}</style>""", unsafe_allow_html=True)
     
-    # --- 側邊欄：依照您的順位編排 ---
+    # --- 側邊欄 ---
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/3426/3426653.png", width=60)
         st.title("⚙️ 審題參數設定")
@@ -75,9 +77,10 @@ def main_app():
         st.subheader("A. 選擇模型")
         model_choice = st.selectbox(
             "AI 大腦版本",
-            ["Gemini 1.5 Pro (付費穩定版)", "Gemini 2.0 Flash (快速免費版)", "Gemini 3.0 Pro (預覽旗艦版)"],
+            ["Gemini 2.5 Pro (最新付費版)", "Gemini 2.0 Flash (快速免費版)", "Gemini 3.0 Pro (預覽旗艦版)"],
             index=0
         )
+        st.caption("💡 建議使用 2.5 Pro 或 3.0 Pro 以獲得最佳的邏輯推演能力。")
         
         # B. 選擇年級
         st.subheader("B. 選擇年級")
@@ -97,11 +100,11 @@ def main_app():
         st.subheader("D. 考試範圍")
         exam_scope = st.text_input(
             "輸入單元或頁數",
-            placeholder="例如：第1單元～第3單元",
+            placeholder="例如：康軒版 第3-4單元",
             help="AI 將依此範圍檢查是否超綱"
         )
         
-        # F. 嚴格程度 (跳過 E)
+        # F. 嚴格程度
         st.subheader("F. 嚴格程度")
         strictness = st.select_slider(
             "AI 審查力道",
@@ -125,13 +128,11 @@ def main_app():
     with col1:
         st.info("📄 **1. 上傳試卷 (必要)**")
         uploaded_exam = st.file_uploader("請拖曳試卷 PDF", type=['pdf'], key="exam")
-        # 檔案大小檢查 (10MB)
         if uploaded_exam and uploaded_exam.size > 10 * 1024 * 1024:
             st.error("⚠️ 檔案過大，請上傳 10MB 以下的檔案。")
             st.stop()
     
     with col2:
-        # 動態標題：讓老師知道該傳哪個年級科目的課本
         st.success(f"📘 **2. 上傳 {grade}{subject} 課本/習作 (選填)**")
         uploaded_refs = st.file_uploader(
             "供 AI 比對範圍 (可多選)", 
@@ -139,22 +140,24 @@ def main_app():
             key="ref", 
             accept_multiple_files=True 
         )
-        st.caption(f"💡 AI 將依據此教材，檢查題目是否超出 **{exam_scope if exam_scope else '全冊'}** 範圍。")
+        # 動態提示文字
+        ref_status_msg = "情境 A：以您上傳的課本為標準" if uploaded_refs else "情境 B：啟動 108 課綱知識庫"
+        st.caption(f"💡 目前模式：**{ref_status_msg}**")
         
     st.markdown("</div>", unsafe_allow_html=True)
 
     # 執行按鈕
     if uploaded_exam:
-        if st.button("🚀 啟動 AI 審題", type="primary"):
+        if st.button("🚀 啟動 AI 專家審題", type="primary"):
             process_review(uploaded_exam, uploaded_refs, model_choice, grade, subject, strictness, exam_scope)
 
-# --- 4. 核心邏輯 ---
+# --- 4. 核心邏輯 (專家版 Prompt) ---
 def process_review(exam_file, ref_files, model_choice, grade, subject, strictness, exam_scope):
     
     with st.container():
         st.markdown("<div class='card-container'>", unsafe_allow_html=True)
-        st.subheader("📊 分析報告")
-        status = st.status("🔍 AI 助教啟動中...", expanded=True)
+        st.subheader("📊 108課綱 專家分析報告")
+        status = st.status("🔍 AI 專家啟動中...", expanded=True)
         
         try:
             # 設定 API Key
@@ -162,67 +165,106 @@ def process_review(exam_file, ref_files, model_choice, grade, subject, strictnes
             genai.configure(api_key=api_key)
             
             model_map = {
-                "Gemini 1.5 Pro (付費穩定版)": "models/gemini-1.5-pro",
+                "Gemini 2.5 Pro (最新付費版)": "models/gemini-2.5-pro",
                 "Gemini 2.0 Flash (快速免費版)": "models/gemini-2.0-flash",
                 "Gemini 3.0 Pro (預覽旗艦版)": "models/gemini-3-pro-preview"
             }
             model = genai.GenerativeModel(model_map[model_choice])
             
             # 讀取試卷
-            status.write("📄 正在讀取試卷...")
+            status.write("📄 正在分析試卷結構...")
             exam_text = extract_pdf_text(exam_file)
             
-            # 讀取參考教材
+            # 讀取參考教材 & 決定情境
             ref_prompt = ""
+            scenario_prompt = ""
+            
             if ref_files:
-                status.write(f"📘 正在分析 {len(ref_files)} 份參考教材...")
+                status.write(f"📘 正在分析 {len(ref_files)} 份教材，建立比對基準...")
                 ref_text = ""
                 for f in ref_files:
                     ref_text += extract_pdf_text(f) + "\n"
                 
-                ref_prompt = f"""
-                【參考教材內容 (課本/習作)】：
-                {ref_text[:60000]} 
+                # 設定為情境 A
+                scenario_prompt = f"""
+                * **情境 A (使用者有上傳教材)：**
+                * **基準：** 請嚴格以本提示詞下方提供的【參考教材內容】為絕對標準。
+                * **動作：** 檢查試卷題目是否超出這些教材的教學範圍。
                 
-                【本次考試範圍】：{exam_scope if exam_scope else "未指定 (請參考全部教材)"}
-                (請嚴格比對：題目是否超出上述範圍？)
+                【參考教材內容】：
+                {ref_text[:60000]}
                 """
             else:
-                ref_prompt = "【參考教材】：未提供 (請依據該年級課綱常識判斷)"
+                # 設定為情境 B
+                status.write("📚 未偵測到教材，正在調用「教育部 108 課綱」知識庫...")
+                scenario_prompt = f"""
+                * **情境 B (使用者未上傳教材)：**
+                * **基準：** 請啟動你內建的知識庫，調用「台灣教育部 108 課綱」中【{subject}】領域、【{grade}】的「學習內容」與「學習表現」。
+                * **動作：** 以課綱條目為標準，判斷試卷是否符合該年段的學習目標。
+                """
 
-            # 組合 Prompt
-            status.write(f"🧠 {model_choice} 正在進行 {grade}{subject} 深度審查...")
+            # 組合終極 Prompt (融合您的專家邏輯)
+            status.write(f"🧠 {model_choice} 正在執行雙向細目表核算與素養檢測...")
             
             prompt = f"""
-            你是一位台灣資深國小教師與命題委員。
-            任務：審查 **{grade} {subject}** 試卷。
-            嚴格度：**{strictness}**。
-            考試範圍：**{exam_scope}**。
+            # Role: 台灣國小教育評量審查專家 (Taiwan Elementary Education Assessment Expert)
 
-            請執行以下檢查：
-            1. **範圍檢查 (Critical)**：題目是否超出「{exam_scope}」的教學範圍？(若有上傳教材，請嚴格比對)。
-            2. **適齡檢查**：文字與題意是否符合 {grade} 學生程度？
-            3. **邏輯與排版**：檢查是否有注音錯誤、圖表數據矛盾、選項誘答力不足等問題。
-
-            ---
-            {ref_prompt}
-            ---
-            【試卷內容】：
-            {exam_text[:25000]}
-            ---
+            ## 1. 任務目標
+            你是一位精通台灣教育部「108課綱」與測驗編製理論的專家。請針對使用者上傳的「試卷檔案」，進行全面性的審題與品質分析。
             
-            請輸出專業報告 (繁體中文)：
-            1. **整體評語** (難易度、範圍符合度)
-            2. **❌ 超綱與重大瑕疵** (請列出題號)
-            3. **逐題優化建議**
-            4. **優點亮點**
+            本次審查資訊：
+            * **年級：** {grade}
+            * **科目：** {subject}
+            * **版本/範圍：** {exam_scope if exam_scope else "未指定"}
+            * **審查嚴格度：** {strictness}
+
+            ## 2. 輸入資料處理規則 (Data Handling Logic)
+            依據使用者上傳狀態，請執行以下情境邏輯：
+            {scenario_prompt}
+
+            ## 3. 前置檢查：課綱對應性 (Curriculum Alignment Check)
+            * 請讀取試卷內容，嚴格核對 {grade}{subject} 在 108 課綱中的規範。
+            * 若發現試卷內容明顯屬於高年級課程（例如小三數學出現代數符號），請立即標註警告。
+
+            ## 4. 試卷分析流程 (Analysis Workflow) - 請依序產出以下章節：
+
+            ### Step 1: 【命題範圍檢核】 (Scope Check)
+            * 檢查試題是否「超綱」。
+            * 若是情境 A，指出哪一題超出教材範圍；若是情境 B，指出哪一題超出 108 課綱該年段的學習內容。
+
+            ### Step 2: 【雙向細目表核算】 (Two-Way Specification Table)
+            **請務必繪製 Markdown 表格**，欄位包含：
+            * 題號
+            * 對應單元/概念
+            * 認知目標層次（請依據 Bloom 分類法判定：記憶、了解、應用、分析、評鑑、創造）
+            * 該題配分
+            * **統計總結：** 請在表後計算整張試卷在各認知層次的配分百分比（例如：記憶 30%, 應用 40%...）。
+
+            ### Step 3: 【難易度與成績分佈預測】 (Difficulty Analysis)
+            * **變形度分析：** 題目是「直球對決」(基本題) 還是「高度變形」(需多層轉折)？
+            * **成績預測：** 基於題目難度分佈，預測成績曲線（例如：常態分佈、左偏、右偏）。
+
+            ### Step 4: 【素養導向審查】 (Competency-Based Assessment)
+            * 計算「素養題」的題數與配分佔比。
+            * **嚴格抓漏：** 審查素養題是否為「真素養」（真實情境）或是「假包裝」（僅套用人名但仍考死背）。
+
+            ### Step 5: 【題幹與邏輯品質審查】 (Quality Control)
+            * **定義一致性：** 專有名詞、符號是否與課本/課綱一致？
+            * **誘答項合理性：** 選擇題的錯誤選項是否具備誘答力？有無邏輯漏洞？
+
+            ## 5. 輸出產出 (Final Output)
+            請彙整以上分析，提供一份結構清晰的「試卷審查總結報告」，並包含具體的「修改建議」。
+
+            ---
+            【試卷原始內容】：
+            {exam_text[:25000]}
             """
             
             response = model.generate_content(prompt)
             ai_report = response.text
             
             # 產生 Word
-            status.write("📝 排版報告中...")
+            status.write("📝 正在製作專家審查報告...")
             bio = generate_word_report(ai_report, model_choice, grade, subject, exam_scope)
             
             status.update(label="✅ 分析完成！", state="complete", expanded=False)
@@ -234,7 +276,7 @@ def process_review(exam_file, ref_files, model_choice, grade, subject, strictnes
                 st.download_button(
                     label="📥 下載 Word 報告",
                     data=bio.getvalue(),
-                    file_name=f"{grade}{subject}_審題報告.docx",
+                    file_name=f"{grade}{subject}_專家審題報告.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="primary"
                 )
@@ -242,7 +284,9 @@ def process_review(exam_file, ref_files, model_choice, grade, subject, strictnes
         except Exception as e:
             status.update(label="❌ 發生錯誤", state="error")
             st.error(f"錯誤：{e}")
-            if "429" in str(e):
+            if "404" in str(e):
+                st.warning("⚠️ 模型找不到，可能是您的帳號權限變動。請嘗試切換至 Flash 模型。")
+            elif "429" in str(e):
                 st.warning("⚠️ 配額已滿，請切換至 Flash 模型。")
         
         st.markdown("</div>", unsafe_allow_html=True)
@@ -260,10 +304,12 @@ def extract_pdf_text(file):
 
 def generate_word_report(text, model, grade, subject, scope):
     doc = Document()
-    doc.add_heading(f'{grade} {subject} 審題報告', 0)
+    doc.add_heading(f'{grade} {subject} 專家審題報告', 0)
     doc.add_paragraph(f"範圍：{scope}")
     doc.add_paragraph(f"模型：{model}")
     doc.add_paragraph("-" * 30)
+    # 因為細目表通常有 Markdown 表格，直接寫入 Word 格式可能跑掉，這裡維持純文字寫入
+    # 如果未來需要 Word 內建表格，需使用更複雜的 Markdown 解析器
     doc.add_paragraph(text)
     bio = BytesIO()
     doc.save(bio)
