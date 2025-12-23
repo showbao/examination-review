@@ -1,4 +1,4 @@
-\import streamlit as st
+import streamlit as st
 import google.generativeai as genai
 from io import BytesIO
 import re
@@ -29,7 +29,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 自訂 CSS (符合您要求的白底灰邊風格)
+# 自訂 CSS (針對您要求的白底灰邊簡約風格)
 st.markdown("""
     <style>
     /* 全局背景 */
@@ -37,7 +37,7 @@ st.markdown("""
     .block-container { padding-top: 1.5rem !important; padding-bottom: 3rem !important; }
     
     /* 標題樣式 */
-    h1 { color: #2c3e50; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
+    h1 { color: #2c3e50; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; text-align: center; }
     h2, h3 { color: #34495e; font-weight: 700; }
     
     /* 1. 登入區卡片 */
@@ -45,28 +45,47 @@ st.markdown("""
         background-color: white;
         padding: 2.5rem;
         border-radius: 12px;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        border: 1px solid #d1d5db;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
     
-    /* 2. 上傳區樣式 (非卡片式，避免重疊) */
-    .upload-label { font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-bottom: 0.5rem; display: block; }
-    .upload-sub { font-size: 0.9rem; color: #666; margin-bottom: 0.8rem; display: block; }
+    /* 2. 上傳區樣式 (修復跑版問題) */
+    .upload-label { 
+        font-size: 1.1rem; 
+        font-weight: 700; 
+        color: #2c3e50; 
+        margin-bottom: 0.5rem; 
+        display: block; 
+    }
+    .upload-sub { 
+        font-size: 0.9rem; 
+        color: #6b7280; 
+        margin-bottom: 0.8rem; 
+        display: block; 
+    }
+    
+    /* 針對 Streamlit 上傳元件進行卡片化偽裝 */
     div[data-testid="stFileUploader"] {
         background-color: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        padding: 1rem;
+        border: 1px solid #d1d5db; /* 灰色邊框 */
+        border-radius: 10px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.02); /* 極簡陰影 */
+        transition: border-color 0.3s;
+    }
+    div[data-testid="stFileUploader"]:hover {
+        border-color: #2563eb;
     }
 
     /* 3. 審題報告卡片 (白底 + 灰邊 + 陰影) */
     .report-card {
         background-color: white;
-        padding: 2rem;
+        padding: 2.5rem;
         border-radius: 12px;
         border: 1px solid #d1d5db; /* 灰色邊框 */
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* 柔和陰影 */
-        margin-bottom: 1.5rem;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* 立體陰影 */
+        margin-top: 1.5rem;
+        margin-bottom: 2rem;
     }
     
     /* 4. 按鈕美化 */
@@ -93,14 +112,14 @@ st.markdown("""
     
     /* 輸入框美化 */
     input[type="password"], input[type="text"] {
-        border: 1px solid #ccc !important;
+        border: 1px solid #d1d5db !important;
         border-radius: 6px !important;
         padding: 10px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. 字型註冊 (本地讀取) ---
+# --- 1. 字型註冊 (本地讀取優先) ---
 @st.cache_resource
 def setup_chinese_fonts():
     font_name = "NotoSerifTC-Regular.ttf"
@@ -128,9 +147,8 @@ def setup_chinese_fonts():
 
     try:
         pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
-        # 將粗體也指向同一檔案，防止報錯
         pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_path))
-        # 建立對應關係，解決 Can't map determine family 錯誤
+        # 建立映射以防報錯
         addMapping('ChineseFont', 0, 0, 'ChineseFont')
         addMapping('ChineseFont', 0, 1, 'ChineseFont-Bold')
         addMapping('ChineseFont', 1, 0, 'ChineseFont-Bold')
@@ -158,6 +176,7 @@ def create_pdf_report(ai_content, exam_meta):
     style_normal = ParagraphStyle('CN_Normal', parent=styles['Normal'], fontName=font_name, fontSize=11, leading=16, spaceAfter=6)
     style_title = ParagraphStyle('CN_Title', parent=styles['Heading1'], fontName=font_name_bold, fontSize=20, leading=24, alignment=1, spaceAfter=20, textColor=colors.HexColor("#2c3e50"))
     style_h2 = ParagraphStyle('CN_H2', parent=styles['Heading2'], fontName=font_name_bold, fontSize=14, leading=18, spaceBefore=12, spaceAfter=6, textColor=colors.HexColor("#1e3a8a"))
+    style_bullet = ParagraphStyle('CN_Bullet', parent=styles['Normal'], fontName=font_name, fontSize=11, leading=16, spaceAfter=4, leftIndent=20, firstLineIndent=0)
     
     story = []
 
@@ -196,13 +215,12 @@ def create_pdf_report(ai_content, exam_meta):
             text = line.replace('#', '').strip()
             story.append(Paragraph(text, style_h2))
             
-        # 表格列處理 (轉為文字，避免 ReportLab 表格跑版)
+        # 表格列處理 (轉為條列式文字，徹底解決 PDF 表格跑版問題)
         elif line.startswith('|'):
-            # 去除 Markdown 表格語法，改為純文字顯示
-            # 將 | 替換為空格，讓閱讀比較清楚
-            clean_text = line.replace('|', '  ').strip()
-            if '---' in clean_text: continue # 跳過分隔線
-            story.append(Paragraph(clean_text, style_normal))
+            clean_text = line.replace('|', ' ').strip()
+            if '---' in clean_text or '單元名稱' in clean_text: continue # 跳過標題與分隔線
+            # 將表格內容轉為縮排文字
+            story.append(Paragraph(f"• {clean_text}", style_bullet))
             
         # 一般內容
         else:
@@ -298,7 +316,7 @@ def main_app():
             st.session_state['logged_in'] = False
             st.rerun()
 
-    st.markdown("<h1 style='text-align: center;'>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
     if st.sidebar.state == "collapsed": st.warning("👈 **老師請注意：請先點擊左上角「>」展開設定年級與科目！**")
 
     # 資料上傳區
@@ -335,10 +353,21 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             if ref_files:
                 status.write(f"📘 讀取教材 ({len(ref_files)} 份)...")
                 for f in ref_files: ref_text += extract_pdf_text(f) + "\n"
-                scenario_prompt = f"情境 A：以使用者上傳教材 (共 {len(ref_text)} 字) 為絕對標準。"
+                scenario_prompt = f"""
+                * **情境 A (使用者有上傳教材)：**
+                * **基準：** 請嚴格以本提示詞下方提供的【參考教材內容】為絕對標準。
+                * **動作：** 檢查試卷題目是否超出這些教材的教學範圍。
+                
+                【參考教材內容】：
+                {ref_text[:60000]}
+                """
             else:
                 status.write("📚 調用 108 課綱知識庫...")
-                scenario_prompt = f"情境 B：未上傳教材，嚴格依據「教育部 108 課綱」{grade}{subject} 學習內容。"
+                scenario_prompt = f"""
+                * **情境 B (使用者未上傳教材)：**
+                * **基準：** 請啟動你內建的知識庫，調用「台灣教育部 108 課綱」中【{subject}】領域、【{grade}】的「學習內容」與「學習表現」。
+                * **動作：** 以課綱條目為標準，判斷試卷是否符合該年段的學習目標。
+                """
 
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
@@ -346,7 +375,7 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
             
             status.write("🧠 Gemini 3.0 Pro 正在執行雙向細目表分析...")
             
-            # --- 恢復專家級提示詞 (V4 版本) ---
+            # --- 恢復 V4 版本最嚴謹的專家提示詞 ---
             prompt = f"""
             # Role: 台灣國小教育評量暨素養導向命題專家
             
@@ -416,7 +445,7 @@ def process_review(exam_file, ref_files, grade, subject, strictness, exam_scope)
                 type="primary"
             )
             
-            # 報告卡片呈現 (直接顯示，避免代碼亂碼)
+            # 報告卡片呈現 (直接渲染整個區塊，美觀且不跑版)
             st.markdown(f"""
             <div class='report-card'>
                 {ai_report.replace('❌', '❌ ').replace('⚠️', '⚠️ ')}
