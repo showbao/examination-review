@@ -26,19 +26,21 @@ st.set_page_config(
     initial_sidebar_state="expanded" # 保持側邊欄展開
 )
 
-# 自訂 CSS (白底灰邊簡約風格)
+# 自訂 CSS (基於 03.py 的風格 + 隱藏側邊欄收合鈕)
 st.markdown("""
     <style>
-    /* 全局設定 */
-    .stApp { background-color: #f8f9fa; color: #333333 !important; }
-    .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown li, label {
-        color: #333333 !important;
-    }
+    /* 全局背景 */
+    .stApp { background-color: #f8f9fa; }
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 3rem !important; }
     
+    /* 隱藏側邊欄收合按鈕 (【修改 1】) */
+    [data-testid="collapsedControl"] { display: none; }
+
     /* 標題樣式 */
-    h1 { color: #2c3e50 !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 1.5rem; text-align: center; }
+    h1 { color: #2c3e50; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; text-align: center; }
+    h2, h3 { color: #34495e; font-weight: 700; }
     
-    /* 登入區卡片 */
+    /* 1. 登入區卡片 (來自 03.py) */
     .login-card {
         background-color: white;
         padding: 2.5rem;
@@ -47,32 +49,57 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
     
-    /* 輸入框美化 */
+    /* 2. 上傳區樣式 */
+    .upload-label { font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-bottom: 0.5rem; display: block; }
+    .upload-sub { font-size: 0.9rem; color: #6b7280; margin-bottom: 0.8rem; display: block; }
+    
     div[data-testid="stFileUploader"] {
-        background-color: white; border: 1px solid #d1d5db; border-radius: 8px; padding: 0.5rem;
-    }
-    input[type="text"], input[type="password"] {
-        border: 1px solid #d1d5db !important; border-radius: 6px !important; padding: 8px !important; color: #333 !important;
+        background-color: white;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
 
-    /* 結果報告卡片 */
+    /* 3. 審題報告卡片 (魔改 st.info 為白色卡片) */
     div[data-testid="stInfo"] {
         background-color: white !important;
         padding: 2rem !important;
         border-radius: 12px !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
         color: #333 !important;
         border: 1px solid #d1d5db !important;
         border-left: 6px solid #4CAF50 !important;
     }
     
-    /* 按鈕美化 */
+    /* 4. 按鈕美化 */
     .stButton>button { 
-        width: 100%; border-radius: 8px !important; font-weight: 700 !important; height: 3em !important; 
+        width: 100%; border-radius: 8px !important; font-weight: 700 !important; height: 3.2em !important; 
         background: linear-gradient(135deg, #2563eb, #1e40af) !important; color: white !important; 
         border: none !important; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
+        transition: transform 0.2s, box-shadow 0.2s !important;
     }
-    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3) !important; }
+    .stButton>button:hover { 
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3) !important;
+    }
+    
+    /* 5. 提示框優化 (來自 03.py) */
+    .disclaimer-box {
+        background-color: #fff8e1; border-left: 5px solid #ffc107; color: #856404;
+        padding: 15px; border-radius: 4px; font-size: 0.95rem; line-height: 1.6;
+        margin-bottom: 20px;
+    }
+    
+    /* 隱藏預設元素 */
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    
+    /* 輸入框美化 */
+    input[type="password"], input[type="text"] {
+        border: 1px solid #d1d5db !important;
+        border-radius: 6px !important;
+        padding: 10px !important;
+    }
     
     /* 側邊欄標題美化 */
     .sidebar-header {
@@ -123,9 +150,11 @@ def download_drive_file(file_id):
 def parse_markdown_to_word(doc, text):
     lines = text.split('\n')
     table_buffer = []
+    
     for line in lines:
         line = line.strip()
         if not line: continue
+        
         if line.startswith('|'):
             table_buffer.append(line)
             continue
@@ -133,9 +162,11 @@ def parse_markdown_to_word(doc, text):
             if table_buffer:
                 create_word_table(doc, table_buffer)
                 table_buffer = [] 
-        
-        if line.startswith('### '): doc.add_heading(line.replace('### ', ''), level=2)
-        elif line.startswith('## '): doc.add_heading(line.replace('## ', ''), level=1)
+
+        if line.startswith('### '):
+            doc.add_heading(line.replace('### ', ''), level=2)
+        elif line.startswith('## '):
+            doc.add_heading(line.replace('## ', ''), level=1)
         elif line.startswith('#### '):
             p = doc.add_paragraph()
             run = p.add_run(line.replace('#### ', ''))
@@ -144,39 +175,57 @@ def parse_markdown_to_word(doc, text):
         else:
             p = doc.add_paragraph()
             clean_line = line
+            
             if line.startswith('* ') or line.startswith('- '):
                 clean_line = line[2:].strip()
-                if not re.match(r'^(\*\*)?(問題|建議|現狀|分析|依據|結論|優點)', clean_line): p.style = 'List Bullet'
+                if re.match(r'^(\*\*)?(問題|建議|現狀|分析|依據|結論|優點)', clean_line):
+                    pass 
+                else:
+                    p.style = 'List Bullet'
             
             parts = re.split(r'(\*\*.*?\*\*)', clean_line)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
                     run = p.add_run(part[2:-2])
                     run.bold = True
-                else: p.add_run(part)
-    if table_buffer: create_word_table(doc, table_buffer)
+                else:
+                    p.add_run(part)
+
+    if table_buffer:
+        create_word_table(doc, table_buffer)
 
 def create_word_table(doc, markdown_lines):
     try:
         rows = [line for line in markdown_lines if '---' not in line]
         if not rows: return
+
         header_line = rows[0].strip().strip('|')
         headers = [h.strip() for h in header_line.split('|')]
         col_count = len(headers)
+        
         table = doc.add_table(rows=1, cols=col_count)
         table.style = 'Table Grid'
+        
         hdr_cells = table.rows[0].cells
-        for i, h in enumerate(headers):
+        for i, header_text in enumerate(headers):
             if i < len(hdr_cells):
-                hdr_cells[i].text = h
-                for p in hdr_cells[i].paragraphs: 
-                    for r in p.runs: r.bold = True
+                hdr_cells[i].text = header_text
+                for paragraph in hdr_cells[i].paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+
         for line in rows[1:]:
-            cells = line.strip().strip('|').split('|')
+            clean_line = line.strip().strip('|')
+            cells_data = clean_line.split('|')
+            
             row_cells = table.add_row().cells
-            for i, c in enumerate(cells):
-                if i < col_count and i < len(row_cells): row_cells[i].text = c.strip().replace('**', '')
-    except: doc.add_paragraph("[表格轉換異常]")
+            for i, cell_text in enumerate(cells_data):
+                if i < col_count and i < len(row_cells):
+                    final_text = cell_text.strip().replace('**', '')
+                    row_cells[i].text = final_text
+                    
+    except Exception as e:
+        doc.add_paragraph(f"[表格轉換異常]")
 
 def generate_word_report_doc(text, exam_meta):
     doc = Document()
@@ -196,8 +245,10 @@ def generate_word_report_doc(text, exam_meta):
     
     table = doc.add_table(rows=1, cols=2)
     table.autofit = True
-    table.cell(0, 0).text = "命題教師："
-    table.cell(0, 1).text = "審題教師："
+    c1 = table.cell(0, 0)
+    c1.text = "命題教師："
+    c2 = table.cell(0, 1)
+    c2.text = "審題教師："
     
     doc.add_paragraph("\n") 
     parse_markdown_to_word(doc, text)
@@ -243,7 +294,7 @@ def extract_pdf_text(file):
         return text
     except: return ""
 
-# --- 4. 登入頁 ---
+# --- 4. 登入頁 (使用 03.py 的設計) ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 def login_page():
@@ -253,23 +304,26 @@ def login_page():
         with st.container():
             st.markdown("""
             <div class='login-card'>
-                <h2 style='text-align: center; color: #1e3a8a; margin-bottom: 20px;'>🔐 北屯區建功國小智慧審題系統</h2>
+                <h2 style='text-align: center; color: #1e3a8a; margin-bottom: 20px;'>🔐 建功國小智慧審題系統</h2>
                 <div class='disclaimer-box'>
-                    <div class='disclaimer-title'>⚠️ 使用前請詳閱以下說明：</div><br>
+                    <div class='disclaimer-title'>⚠️ 使用前請詳閱以下說明：</div>
                     本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。<br><br>
-                    <b>1. 人工查核機制：</b>AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。<br>
-                    <b>2. 資料隱私安全：</b>嚴禁上傳包含學生個資之文件。<br>
-                    <b>3. 資料留存規範：</b>系統重啟後檔案自動銷毀。<br>
-                    <b>4. 授權使用範圍：</b>僅限校內教師內部使用。
+                    <b>1. 人工查核機制：</b>AI 生成內容可能存在誤差或不可預期的錯誤（幻覺），最終試卷定稿請務必回歸教師專業判斷。<br>
+                    <b>2. 資料隱私安全：</b>嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。<br>
+                    <b>3. 資料留存規範：</b>本系統不永久留存檔案，上傳之文件將於系統重啟或對話結束後自動銷毀。<br>
+                    <b>4. 風險承擔同意：</b>使用本服務即代表您理解並同意自行評估相關使用風險。<br>
+                    <b>5. 授權使用範圍：</b>本系統無償提供予臺中市北屯區建功國小教師使用，為確保資源永續與經費控管，僅限校內教師內部使用。
                 </div>
+                <br>
             """, unsafe_allow_html=True)
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
+            
+            password = st.text_input("請輸入校內授權密碼", type="password")
             if st.button("同意聲明並登入"):
                 if password == st.secrets.get("LOGIN_PASSWORD", "school123"):
                     st.session_state['logged_in'] = True
                     st.rerun()
-                else: st.error("❌ 密碼錯誤")
+                else:
+                    st.error("❌ 密碼錯誤")
             st.markdown("</div>", unsafe_allow_html=True)
 
 # --- 5. 主程式 ---
@@ -280,8 +334,7 @@ def main_app():
 
     # --- 側邊欄設定區 ---
     with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/3426/3426653.png", width=60)
-        st.title("⚙️ 參數設定")
+        # 【修改 2】移除圖片與 "參數設定" 標題，改用簡潔提示
         st.info("👇 請依序設定")
 
         # 1. 試卷上傳
@@ -303,11 +356,13 @@ def main_app():
         selected_drive_ids = [file_options[name] for name in selected_names]
 
         # 4. 審查程度
+        # 【修改 3】增加間距，讓字體下降
+        st.markdown("<br>", unsafe_allow_html=True) 
         st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
         strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
         
         st.markdown("---")
-        # 啟動按鈕 (放在側邊欄最下方)
+        # 啟動按鈕
         start_btn = st.button("🚀 AI 教授審題", type="primary", use_container_width=True)
         
         if st.button("登出系統"):
