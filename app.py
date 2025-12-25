@@ -26,21 +26,28 @@ st.set_page_config(
     initial_sidebar_state="expanded" # 保持側邊欄展開
 )
 
-# 自訂 CSS (基於 03.py 的風格 + 隱藏側邊欄收合鈕)
+# 自訂 CSS (基於 03.py 的風格 + 隱藏側邊欄收合鈕 + 調整間距)
 st.markdown("""
     <style>
     /* 全局背景 */
     .stApp { background-color: #f8f9fa; }
+    
+    /* 調整主內容區塊的頂部間距，讓標題位置剛好 */
     .block-container { padding-top: 1.5rem !important; padding-bottom: 3rem !important; }
     
-    /* 隱藏側邊欄收合按鈕 (【修改 1】) */
+    /* 隱藏側邊欄收合按鈕 */
     [data-testid="collapsedControl"] { display: none; }
+    
+    /* 【修改 1】調整側邊欄頂部間距，消除上方大白塊 */
+    section[data-testid="stSidebar"] div.block-container {
+        padding-top: 2rem !important;
+    }
 
     /* 標題樣式 */
     h1 { color: #2c3e50; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; text-align: center; }
     h2, h3 { color: #34495e; font-weight: 700; }
     
-    /* 1. 登入區卡片 (來自 03.py) */
+    /* 1. 登入區卡片 */
     .login-card {
         background-color: white;
         padding: 2.5rem;
@@ -61,7 +68,7 @@ st.markdown("""
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
 
-    /* 3. 審題報告卡片 (魔改 st.info 為白色卡片) */
+    /* 3. 審題報告卡片 */
     div[data-testid="stInfo"] {
         background-color: white !important;
         padding: 2rem !important;
@@ -84,7 +91,7 @@ st.markdown("""
         box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3) !important;
     }
     
-    /* 5. 提示框優化 (來自 03.py) */
+    /* 5. 提示框優化 */
     .disclaimer-box {
         background-color: #fff8e1; border-left: 5px solid #ffc107; color: #856404;
         padding: 15px; border-radius: 4px; font-size: 0.95rem; line-height: 1.6;
@@ -317,7 +324,9 @@ def login_page():
                 <br>
             """, unsafe_allow_html=True)
             
-            password = st.text_input("請輸入校內授權密碼", type="password")
+            # 【修改 3】使用 placeholder 放入框內，並隱藏標籤
+            password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
+            
             if st.button("同意聲明並登入"):
                 if password == st.secrets.get("LOGIN_PASSWORD", "school123"):
                     st.session_state['logged_in'] = True
@@ -334,9 +343,8 @@ def main_app():
 
     # --- 側邊欄設定區 ---
     with st.sidebar:
-        # 【修改 2】移除圖片與 "參數設定" 標題，改用簡潔提示
-        st.info("👇 請依序設定")
-
+        # 【修改 1】移除 "👇 請依序設定" 的提示框，消除上方空白
+        
         # 1. 試卷上傳
         st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
         uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
@@ -356,13 +364,15 @@ def main_app():
         selected_drive_ids = [file_options[name] for name in selected_names]
 
         # 4. 審查程度
-        # 【修改 3】增加間距，讓字體下降
-        st.markdown("<br>", unsafe_allow_html=True) 
         st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
         
-        st.markdown("---")
+        # 【修改 2】移除按鈕上方的分隔線
+        # st.markdown("---") 
+        
         # 啟動按鈕
+        st.markdown("<br>", unsafe_allow_html=True)
         start_btn = st.button("🚀 AI 教授審題", type="primary", use_container_width=True)
         
         if st.button("登出系統"):
@@ -370,6 +380,7 @@ def main_app():
             st.rerun()
 
     # --- 主畫面 ---
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("<h1>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
 
     # 執行邏輯
