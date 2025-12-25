@@ -23,10 +23,10 @@ st.set_page_config(
     page_title="北屯區建功國小智慧審題系統V2",
     page_icon="🏫",
     layout="wide",
-    initial_sidebar_state="collapsed" # 預設收合側邊欄
+    initial_sidebar_state="expanded" # 保持側邊欄展開
 )
 
-# 自訂 CSS (保持深色文字設定 + 新增功能區樣式)
+# 自訂 CSS (白底灰邊簡約風格)
 st.markdown("""
     <style>
     /* 全局設定 */
@@ -35,22 +35,9 @@ st.markdown("""
         color: #333333 !important;
     }
     
-    /* 隱藏側邊欄切換按鈕 (真正移除側邊欄視覺) */
-    [data-testid="collapsedControl"] { display: none; }
-    
     /* 標題樣式 */
     h1 { color: #2c3e50 !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 1.5rem; text-align: center; }
     
-    /* 功能設定區容器樣式 */
-    .control-panel {
-        background-color: white;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-    }
-
     /* 登入區卡片 */
     .login-card {
         background-color: white;
@@ -86,6 +73,17 @@ st.markdown("""
         border: none !important; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
     }
     .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3) !important; }
+    
+    /* 側邊欄標題美化 */
+    .sidebar-header {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #1e3a8a;
+        margin-top: 15px;
+        margin-bottom: 5px;
+        border-bottom: 2px solid #e0e0e0;
+        padding-bottom: 5px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -207,7 +205,7 @@ def generate_word_report_doc(text, exam_meta):
     doc.save(bio)
     return bio
 
-# --- 3. 強化版試卷資訊擷取 (自動偵測) ---
+# --- 3. 強化版試卷資訊擷取 ---
 def extract_exam_meta_enhanced(text):
     import datetime
     today = datetime.date.today().strftime("%Y/%m/%d")
@@ -217,28 +215,18 @@ def extract_exam_meta_enhanced(text):
         "grade": "未偵測", "subject": "未偵測", "date_str": today
     }
     
-    sample = text[:1000] # 只看前1000字
-    
-    # 抓取學年
+    sample = text[:1000] 
     m_year = re.search(r'(\d{3})\s*學年度', sample)
     if m_year: meta['year'] = f"{m_year.group(1)}學年度"
-    
-    # 抓取學期
     m_sem = re.search(r'(上|下)\s*學期', sample)
     if m_sem: meta['semester'] = f"{m_sem.group(1)}學期"
-    
-    # 抓取年級 (增加關鍵字偵測)
     m_grade = re.search(r'([一二三四五六])\s*年級', sample)
     if m_grade: meta['grade'] = f"{m_grade.group(1)}年級"
-    
-    # 抓取科目
     subjects = ["國語", "數學", "英語", "英文", "自然", "社會", "生活"]
     for sub in subjects:
         if sub in sample:
             meta['subject'] = sub
             break
-            
-    # 抓取考試名稱
     m_exam = re.search(r'(期中|期末|第[一二三]次|定期)評量', sample)
     if m_exam: meta['exam_name'] = m_exam.group(0)
     elif "期末" in sample: meta['exam_name'] = "期末評量"
@@ -290,45 +278,49 @@ def main_app():
     if 'word_file' not in st.session_state: st.session_state['word_file'] = None
     if 'exam_meta' not in st.session_state: st.session_state['exam_meta'] = None
 
-    st.markdown("<h1>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
+    # --- 側邊欄設定區 ---
+    with st.sidebar:
+        st.image("https://cdn-icons-png.flaticon.com/512/3426/3426653.png", width=60)
+        st.title("⚙️ 參數設定")
+        st.info("👇 請依序設定")
 
-    # --- 功能設定區 (四欄佈局) ---
-    with st.container():
-        # 自訂比例：試卷上傳(3) | 考試範圍(2) | 比對資料庫(3) | AI程度(2)
-        c1, c2, c3, c4 = st.columns([1.5, 1, 1.5, 1])
+        # 1. 試卷上傳
+        st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
+        uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
         
-        with c1:
-            st.markdown("**1. 試卷上傳區**")
-            uploaded_exam = st.file_uploader("上傳試卷PDF", type=['pdf'], key="exam", label_visibility="collapsed")
+        # 2. 考試範圍
+        st.markdown("<div class='sidebar-header'>📖 考試範圍</div>", unsafe_allow_html=True)
+        exam_scope = st.text_input("輸入範圍", placeholder="如：康軒版 第3-4單元", label_visibility="collapsed")
         
-        with c2:
-            st.markdown("**2. 考試範圍**")
-            exam_scope = st.text_input("輸入範圍", placeholder="如：第3-4單元", label_visibility="collapsed")
-            
-        with c3:
-            st.markdown("**3. 比對資料庫 (Google Drive)**")
-            drive_files = []
-            folder_id = st.secrets.get("google_drive_folder_id")
-            if folder_id: drive_files = get_drive_files(folder_id)
-            
-            file_options = {f['name']: f['id'] for f in drive_files} if drive_files else {}
-            selected_names = st.multiselect("選擇比對教材", list(file_options.keys()), placeholder="請選擇雲端教材", label_visibility="collapsed")
-            selected_drive_ids = [file_options[name] for name in selected_names]
+        # 3. 比對資料庫
+        st.markdown("<div class='sidebar-header'>☁️ 比對資料庫</div>", unsafe_allow_html=True)
+        drive_files = []
+        folder_id = st.secrets.get("google_drive_folder_id")
+        if folder_id: drive_files = get_drive_files(folder_id)
+        
+        file_options = {f['name']: f['id'] for f in drive_files} if drive_files else {}
+        selected_names = st.multiselect("選擇教材 (Google Drive)", list(file_options.keys()), placeholder="可多選教材或考古題", label_visibility="collapsed")
+        selected_drive_ids = [file_options[name] for name in selected_names]
 
-        with c4:
-            st.markdown("**4. AI 審查程度**")
-            strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
-
-    # 按鈕區
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_mid = st.columns([1, 2, 1])
-    with col_mid[1]:
+        # 4. 審查程度
+        st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
+        strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
+        
+        st.markdown("---")
+        # 啟動按鈕 (放在側邊欄最下方)
         start_btn = st.button("🚀 AI 教授審題", type="primary", use_container_width=True)
+        
+        if st.button("登出系統"):
+            st.session_state['logged_in'] = False
+            st.rerun()
+
+    # --- 主畫面 ---
+    st.markdown("<h1>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
 
     # 執行邏輯
     if start_btn:
         if not uploaded_exam:
-            st.warning("⚠️ 請先在第一欄上傳試卷 PDF")
+            st.warning("⚠️ 請先在左側上傳試卷 PDF")
         else:
             report, word_data, meta = process_review_logic(
                 uploaded_exam, selected_drive_ids, strictness, exam_scope
@@ -350,14 +342,14 @@ def main_app():
         )
         st.info(st.session_state['ai_report'])
 
-# --- 核心邏輯 (重構版) ---
+# --- 核心邏輯 ---
 def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope):
     with st.container():
         status = st.status("🔍 AI 教授正在審題中...", expanded=True)
         try:
             status.write("📄 讀取並分析試卷內容...")
             exam_text = extract_pdf_text(exam_file)
-            # 自動偵測試卷資訊 (取代手動輸入)
+            # 自動偵測試卷資訊
             exam_meta = extract_exam_meta_enhanced(exam_text)
             status.write(f"✅ 試卷識別：{exam_meta['info_str']}")
             
@@ -372,7 +364,7 @@ def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope):
                         ref_text += extract_pdf_text(f_stream) + "\n"
                         ref_source_list.append(f"教材ID:{fid}")
             
-            # 建構 Prompt (移除聯網搜尋，專注於資料庫比對)
+            # 建構 Prompt
             ref_block = ""
             if ref_text:
                 ref_block = f"【比對資料庫內容 (Ground Truth)】：\n{ref_text[:50000]}\n"
