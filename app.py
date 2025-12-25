@@ -33,7 +33,7 @@ st.markdown("""
     .stApp { background-color: #f8f9fa; }
     .block-container { padding-top: 1.5rem !important; padding-bottom: 3rem !important; }
     
-    /* 隱藏側邊欄收合按鈕 */
+    /* 隱藏側邊欄收合按鈕 (【修改 1】) */
     [data-testid="collapsedControl"] { display: none; }
 
     /* 標題樣式 */
@@ -334,8 +334,9 @@ def main_app():
 
     # --- 側邊欄設定區 ---
     with st.sidebar:
-        # 【修改 2】移除 "👇 請依序設定"
-        
+        # 【修改 2】移除圖片與 "參數設定" 標題，改用簡潔提示
+        st.info("👇 請依序設定")
+
         # 1. 試卷上傳
         st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
         uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
@@ -355,11 +356,9 @@ def main_app():
         selected_drive_ids = [file_options[name] for name in selected_names]
 
         # 4. 審查程度
-        # 【修改 3】
-        # 移除標題上方的 <br>
+        # 【修改 3】增加間距，讓字體下降
+        st.markdown("<br>", unsafe_allow_html=True) 
         st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
-        # 在標題下方加入 <br> 讓滑桿下移
-        st.markdown("<br>", unsafe_allow_html=True)
         strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
         
         st.markdown("---")
@@ -371,8 +370,6 @@ def main_app():
             st.rerun()
 
     # --- 主畫面 ---
-    # 【修改 1】增加上方的空間，讓標題下移
-    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("<h1>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
 
     # 執行邏輯
