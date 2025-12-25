@@ -38,26 +38,25 @@ st.markdown("""
     /* 隱藏側邊欄收合按鈕 */
     [data-testid="collapsedControl"] { display: none; }
     
-    /* 【修改 1】側邊欄頂部完全除白 */
+    /* 【修改 1】側邊欄頂部完全除白，緊貼邊緣 */
     section[data-testid="stSidebar"] .block-container {
-        padding-top: 1rem !important;
+        padding-top: 0rem !important;
         margin-top: 0rem !important;
     }
 
-    /* 【修改 2】滑桿調整：文字下移、橫桿上移 */
-    /* 1. 將滑桿數值(嚴格)移到橫桿下方 */
-    div[data-testid="stSlider"] > div:first-child {
-        flex-direction: column-reverse;
+    /* 【修改 2】滑桿調整：強制將文字(嚴格)移到橫桿下方 */
+    /* 找到滑桿組件中包含"數值"與"軌道"的容器(通常是第二個子元素)，並反轉排列 */
+    div[data-testid="stSlider"] > div:nth-child(2) {
+        display: flex;
+        flex-direction: column-reverse; 
     }
-    /* 2. 調整數值文字的間距，讓它離橫桿遠一點點 */
+    
+    /* 微調反轉後的間距，讓文字離橫桿有一點距離 */
     div[data-testid="stSlider"] [data-testid="stMarkdownContainer"] p {
-        margin-top: 10px !important;
+        margin-top: 8px !important;
+        margin-bottom: 0px !important;
         font-weight: 600;
-        color: #e63946; /* 強調數值顏色 (可選) */
-    }
-    /* 3. 讓整個滑桿組件往上移動，靠近標題 */
-    div[data-testid="stSlider"] {
-        margin-top: -20px !important;
+        text-align: center; /* 讓文字置中 */
     }
 
     /* 標題樣式 */
@@ -344,7 +343,7 @@ def login_page():
                 </div>
             """, unsafe_allow_html=True)
             
-            # 【修改 3】增加明確的間距 (空一行)
+            # 【修改 3】增加明確的間距
             st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
             
             password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
@@ -364,7 +363,7 @@ def main_app():
 
     # --- 側邊欄設定區 ---
     with st.sidebar:
-        # 1. 試卷上傳 (上方已除白)
+        # 1. 試卷上傳 (CSS 已除白)
         st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
         uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
         
@@ -383,8 +382,8 @@ def main_app():
         selected_drive_ids = [file_options[name] for name in selected_names]
 
         # 4. 審查程度
-        # 【修改 2】移除標題上方的 <br>，並透過 CSS 讓橫桿上移、文字下移
         st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
+        # 這裡不需要換行，CSS 會將文字移到下方
         strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
         
         # 啟動按鈕
