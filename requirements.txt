@@ -2,5 +2,5 @@ streamlit
 google-generativeai
 pypdf
 python-docx
-google-api-python-client  <-- 新增這行
-google-auth               <-- 新增這行
+google-api-python-client 
+google-auth
