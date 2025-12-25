@@ -280,7 +280,9 @@ def login_page():
                 <br>
             """, unsafe_allow_html=True)
             
-            password = st.text_input("請輸入校內授權密碼", type="password")
+            # 【修正 1】使用 placeholder 並隱藏 label
+            password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
+            
             if st.button("同意聲明並登入"):
                 if password == st.secrets.get("LOGIN_PASSWORD", "school123"):
                     st.session_state['logged_in'] = True
@@ -305,7 +307,8 @@ def main_app():
         
         # 3. 新增學年度
         st.subheader("B. 選擇年級")
-        school_year = st.text_input("學年度", value="113")
+        # 【修正 2】移除 value，改用 placeholder
+        school_year = st.text_input("學年度", placeholder="113")
         grade = st.selectbox("適用對象", ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"])
         
         st.subheader("C. 選擇科目")
@@ -339,8 +342,8 @@ def main_app():
     
     with col2:
         st.markdown(f"<span class='upload-label'>📘 2. 上傳 {grade}{subject} 課本/習作 (選填)</span>", unsafe_allow_html=True)
-        # 6. 修正備註文字
-        st.markdown("<span class='upload-sub'>請確認左邊參數設定是否勾選正確，以避免比對錯誤。</span>", unsafe_allow_html=True)
+        # 【修正 3】修改備註文字
+        st.markdown("<span class='upload-sub'>如未上傳檔案，請務必確認左邊參數設定是否勾選正確，以避免比對錯誤。</span>", unsafe_allow_html=True)
         uploaded_refs = st.file_uploader("上傳教材", type=['pdf'], key="ref", accept_multiple_files=True, label_visibility="collapsed")
 
     st.markdown("<br>", unsafe_allow_html=True)
