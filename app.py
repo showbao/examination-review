@@ -26,21 +26,31 @@ st.set_page_config(
     initial_sidebar_state="expanded" # 保持側邊欄展開
 )
 
-# 自訂 CSS (基於 03.py 的風格 + 隱藏側邊欄收合鈕 + 調整間距)
+# 自訂 CSS
 st.markdown("""
     <style>
     /* 全局背景 */
     .stApp { background-color: #f8f9fa; }
     
-    /* 調整主內容區塊的頂部間距，讓標題位置剛好 */
+    /* 調整主內容區塊的頂部間距 */
     .block-container { padding-top: 1.5rem !important; padding-bottom: 3rem !important; }
     
     /* 隱藏側邊欄收合按鈕 */
     [data-testid="collapsedControl"] { display: none; }
     
-    /* 【修改 1】調整側邊欄頂部間距，消除上方大白塊 */
+    /* 【修改 1】側邊欄頂部間距歸零，消除上方大白塊 */
     section[data-testid="stSidebar"] div.block-container {
-        padding-top: 2rem !important;
+        padding-top: 0rem !important;
+        margin-top: 1rem !important;
+    }
+
+    /* 【修改 2】將滑桿的數值標籤(如:嚴格)移到橫桿下方 */
+    div[data-testid="stSlider"] > div:first-child {
+        flex-direction: column-reverse;
+    }
+    /* 微調數值文字的間距 */
+    div[data-testid="stSlider"] [data-testid="stMarkdownContainer"] p {
+        margin-top: 5px !important;
     }
 
     /* 標題樣式 */
@@ -106,6 +116,10 @@ st.markdown("""
         border: 1px solid #d1d5db !important;
         border-radius: 6px !important;
         padding: 10px !important;
+        color: #333333 !important;
+        background-color: #ffffff !important;
+        position: relative !important;
+        z-index: 1 !important;
     }
     
     /* 側邊欄標題美化 */
@@ -301,7 +315,7 @@ def extract_pdf_text(file):
         return text
     except: return ""
 
-# --- 4. 登入頁 (使用 03.py 的設計) ---
+# --- 4. 登入頁 ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 def login_page():
@@ -321,12 +335,12 @@ def login_page():
                     <b>4. 風險承擔同意：</b>使用本服務即代表您理解並同意自行評估相關使用風險。<br>
                     <b>5. 授權使用範圍：</b>本系統無償提供予臺中市北屯區建功國小教師使用，為確保資源永續與經費控管，僅限校內教師內部使用。
                 </div>
-                <br>
             """, unsafe_allow_html=True)
             
-            # 【修改 3】使用 placeholder 放入框內，並隱藏標籤
-            password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
+            # 【修改 3】增加明確的間距
+            st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
             
+            password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
             if st.button("同意聲明並登入"):
                 if password == st.secrets.get("LOGIN_PASSWORD", "school123"):
                     st.session_state['logged_in'] = True
@@ -343,8 +357,6 @@ def main_app():
 
     # --- 側邊欄設定區 ---
     with st.sidebar:
-        # 【修改 1】移除 "👇 請依序設定" 的提示框，消除上方空白
-        
         # 1. 試卷上傳
         st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
         uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
@@ -365,11 +377,8 @@ def main_app():
 
         # 4. 審查程度
         st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        # 【修改 2】移除 <br> 讓橫桿往上一行
         strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
-        
-        # 【修改 2】移除按鈕上方的分隔線
-        # st.markdown("---") 
         
         # 啟動按鈕
         st.markdown("<br>", unsafe_allow_html=True)
