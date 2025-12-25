@@ -7,6 +7,11 @@ from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
+# --- 新增：Google Drive 相關套件 ---
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
 # 嘗試匯入 PDF 讀取套件
 try:
     from pypdf import PdfReader
@@ -74,10 +79,8 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
         color: #333 !important;
         border: 1px solid #d1d5db !important;
-        border-left: 6px solid #4CAF50 !important; /* 綠色識別線 */
+        border-left: 6px solid #4CAF50 !important;
     }
-    /* 隱藏 st.info 的預設圖示 (可選) */
-    /* div[data-testid="stInfo"] > div:first-child { display: none; } */
     
     /* 4. 按鈕美化 */
     .stButton>button { 
@@ -111,7 +114,61 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. 進階 Word 生成引擎 ---
+# --- 1. Google Drive API 串接模組 ---
+@st.cache_resource
+def init_drive_service():
+    """初始化 Google Drive Service"""
+    try:
+        # 從 Secrets 讀取憑證
+        service_account_info = st.secrets["gcp_service_account"]
+        creds = service_account.Credentials.from_service_account_info(
+            service_account_info, 
+            scopes=['https://www.googleapis.com/auth/drive.readonly']
+        )
+        service = build('drive', 'v3', credentials=creds)
+        return service
+    except Exception as e:
+        # 為了不讓還沒設定 Secret 的人崩潰，這裡回傳 None 並默默略過
+        # print(f"Drive Init Error: {e}")
+        return None
+
+def get_drive_files(folder_id):
+    """取得指定資料夾內的 PDF 檔案清單"""
+    service = init_drive_service()
+    if not service: return []
+    
+    try:
+        # 搜尋指定資料夾內的 PDF 檔案 (不含垃圾桶)
+        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+        results = service.files().list(
+            q=query, 
+            pageSize=100, 
+            fields="nextPageToken, files(id, name)"
+        ).execute()
+        items = results.get('files', [])
+        return items # 回傳 [{'id': '...', 'name': '...'}, ...]
+    except Exception as e:
+        st.sidebar.error(f"雲端連線失敗: {e}")
+        return []
+
+def download_drive_file(file_id):
+    """下載雲端檔案並回傳 BytesIO"""
+    service = init_drive_service()
+    if not service: return None
+    
+    try:
+        request = service.files().get_media(fileId=file_id)
+        file_io = BytesIO()
+        downloader = MediaIoBaseDownload(file_io, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        file_io.seek(0)
+        return file_io
+    except Exception as e:
+        return None
+
+# --- 2. 進階 Word 生成引擎 ---
 def parse_markdown_to_word(doc, text):
     lines = text.split('\n')
     table_buffer = []
@@ -221,7 +278,7 @@ def generate_word_report_doc(text, exam_meta):
     doc.save(bio)
     return bio
 
-# --- 2. 輔助函數 ---
+# --- 3. 輔助函數 ---
 def extract_exam_meta(text, grade, subject):
     import datetime
     today = datetime.date.today().strftime("%Y/%m/%d")
@@ -258,7 +315,7 @@ def extract_pdf_text(file):
     except:
         return "[PDF 讀取失敗]"
 
-# --- 3. 登入頁 ---
+# --- 4. 登入頁 ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 def login_page():
@@ -280,8 +337,7 @@ def login_page():
                 </div>
             """, unsafe_allow_html=True)
             
-            # 【修正 2】增加間距 (使用兩個 <br>)
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<br><br>", unsafe_allow_html=True)
             
             password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
             
@@ -293,19 +349,17 @@ def login_page():
                     st.error("❌ 密碼錯誤")
             st.markdown("</div>", unsafe_allow_html=True)
 
-# --- 4. 主程式 ---
+# --- 5. 主程式 ---
 def main_app():
-    # 初始化 Session State (確保報告不會因為點擊下載而消失)
-    if 'ai_report' not in st.session_state:
-        st.session_state['ai_report'] = None
-    if 'word_file' not in st.session_state:
-        st.session_state['word_file'] = None
-    if 'exam_meta' not in st.session_state:
-        st.session_state['exam_meta'] = None
+    # 初始化 Session State
+    if 'ai_report' not in st.session_state: st.session_state['ai_report'] = None
+    if 'word_file' not in st.session_state: st.session_state['word_file'] = None
+    if 'exam_meta' not in st.session_state: st.session_state['exam_meta'] = None
 
+    # --- 側邊欄 ---
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/3426/3426653.png", width=60)
-        st.title("⚙️ 參數設定")
+        st.title("⚙️ 審題參數設定")
         st.markdown("---")
         st.info("👇 請依序完成設定")
 
@@ -323,6 +377,25 @@ def main_app():
         st.subheader("D. 考試範圍")
         exam_scope = st.text_input("輸入單元或頁數", placeholder="例如：第3-4單元")
         
+        st.subheader("E. 雲端教材庫")
+        # --- 自動抓取 Google Drive 檔案 ---
+        drive_files = []
+        folder_id = st.secrets.get("google_drive_folder_id")
+        if folder_id:
+            with st.spinner("連線雲端資料庫中..."):
+                drive_files = get_drive_files(folder_id)
+        
+        selected_drive_files = []
+        if drive_files:
+            file_options = {f['name']: f['id'] for f in drive_files}
+            selected_names = st.multiselect("選擇比對教材 (可多選)", list(file_options.keys()))
+            selected_drive_files = [file_options[name] for name in selected_names]
+        else:
+            if not folder_id:
+                st.warning("⚠️ 未設定 Google Drive Folder ID")
+            else:
+                st.warning("📭 資料夾是空的或讀取失敗")
+
         st.subheader("F. 嚴格程度")
         strictness = st.select_slider("AI 審查力道", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格")
         st.markdown("---")
@@ -330,6 +403,7 @@ def main_app():
             st.session_state['logged_in'] = False
             st.rerun()
 
+    # --- 主畫面 ---
     st.markdown("<h1>🏫 台中市北屯區建功國小智慧審題系統</h1>", unsafe_allow_html=True)
     
     if st.sidebar.state == "collapsed": st.warning("👈 **老師請注意：請先點擊左上角「>」展開設定年級與科目！**")
@@ -351,20 +425,22 @@ def main_app():
 
     if uploaded_exam:
         if st.button("🚀 啟動 AI 專家審題 (生成 Word 報告)", type="primary"):
-            # 執行審題邏輯並獲取結果
-            report, word_data, meta = process_review_logic(uploaded_exam, uploaded_refs, grade, subject, strictness, exam_scope, school_year, version)
+            # 執行審題邏輯
+            report, word_data, meta = process_review_logic(
+                uploaded_exam, uploaded_refs, selected_drive_files, 
+                grade, subject, strictness, exam_scope, school_year, version
+            )
             
-            # 將結果存入 Session State (持久化)
+            # 存入 Session State
             st.session_state['ai_report'] = report
             st.session_state['word_file'] = word_data
             st.session_state['exam_meta'] = meta
 
-    # --- 結果顯示區 (從 Session State 讀取，確保刷新後不消失) ---
+    # --- 結果顯示區 ---
     if st.session_state['ai_report']:
         st.markdown("---")
         st.subheader("📊 審題報告預覽")
         
-        # 下載按鈕
         st.download_button(
             label="📥 下載 Word 報告 (.docx)",
             data=st.session_state['word_file'],
@@ -373,11 +449,10 @@ def main_app():
             type="primary"
         )
         
-        # 【修正 1】使用 st.info 完美替代 HTML div，解決白框問題，且樣式一致
         st.info(st.session_state['ai_report'])
 
-# --- 核心邏輯 (重構為回傳數據的函數) ---
-def process_review_logic(exam_file, ref_files, grade, subject, strictness, exam_scope, school_year, version):
+# --- 核心邏輯 (整合 Drive 下載功能) ---
+def process_review_logic(exam_file, local_ref_files, drive_ref_ids, grade, subject, strictness, exam_scope, school_year, version):
     with st.container():
         status = st.status("🔍 AI 專家啟動中...", expanded=True)
         try:
@@ -386,17 +461,39 @@ def process_review_logic(exam_file, ref_files, grade, subject, strictness, exam_
             exam_meta = extract_exam_meta(exam_text, grade, subject)
             status.write(f"✅ 識別資訊：{exam_meta['info_str']}")
             
+            # --- 處理教材內容 (混合 本機上傳 + 雲端下載) ---
             ref_text = ""
+            ref_source_list = []
+            
+            # 1. 處理本機上傳
+            if local_ref_files:
+                status.write(f"📘 讀取使用者上傳教材 ({len(local_ref_files)} 份)...")
+                for f in local_ref_files: 
+                    ref_text += extract_pdf_text(f) + "\n"
+                    ref_source_list.append(f"上傳檔案：{f.name}")
+
+            # 2. 處理雲端下載
+            if drive_ref_ids:
+                status.write(f"☁️ 下載雲端教材庫 ({len(drive_ref_ids)} 份)...")
+                for fid in drive_ref_ids:
+                    f_stream = download_drive_file(fid)
+                    if f_stream:
+                        ref_text += extract_pdf_text(f_stream) + "\n"
+                        ref_source_list.append(f"雲端檔案ID：{fid}")
+                    else:
+                        st.error(f"❌ 無法下載雲端檔案 (ID: {fid})")
+
+            # --- 決定提示詞邏輯 ---
+            ref_data_block = ""
             scenario_prompt = ""
-            if ref_files:
-                status.write(f"📘 讀取教材 ({len(ref_files)} 份)...")
-                for f in ref_files: ref_text += extract_pdf_text(f) + "\n"
-                ref_data_block = f"【教材參考檔案 (Ground Truth)】：\n{ref_text[:60000]}\n"
-                scenario_prompt = "**情況 A（有上傳教材）：** 請以本提示詞下方提供的【教材參考檔案】為絕對標準。"
+            
+            if ref_text:
+                ref_data_block = f"【教材參考檔案 (Ground Truth)】：\n包含來源：{', '.join(ref_source_list)}\n內容摘要：\n{ref_text[:60000]}\n"
+                scenario_prompt = "**情況 A（有參考教材）：** 請以本提示詞下方提供的【教材參考檔案】為絕對標準，檢查試卷是否超綱。"
             else:
                 status.write("📚 無教材，準備調用知識庫...")
-                ref_data_block = "【教材參考檔案】：未上傳 (請執行情況 B 的搜尋策略)\n"
-                scenario_prompt = "**情況 B（無上傳教材）：** 請啟動 Google Search 功能搜尋該版本課綱。"
+                ref_data_block = "【教材參考檔案】：未提供 (請執行情況 B 的搜尋策略)\n"
+                scenario_prompt = "**情況 B（無教材）：** 請啟動 Google Search 功能搜尋該版本課綱。"
 
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
@@ -418,20 +515,9 @@ def process_review_logic(exam_file, ref_files, grade, subject, strictness, exam_
 * **範圍：** {exam_scope if exam_scope else "未指定"}
 * **審查嚴格度：** {strictness}
 
-## 2. 輸入資料處理規則 (Data Handling Logic)
-## 步驟 1：檢查參考資料來源
-請先檢查使用者的 Prompt 中是否包含「教材參考檔案」（如課本或習作 PDF）。
-* **情況 A（有上傳教材）：** 若有教材檔案，請將其視為「唯一真理（Ground Truth）」，直接以檔案內容進行深度比對。
-* **情況 B（無上傳教材）：** 若**沒有**偵測到教材檔案，你必須立刻啟動 **Google Search** 功能。
-
-## 步驟 2：執行情況 B 的聯網檢索 (僅在無教材時執行)
-若進入情況 B，請根據使用者提供的【元數據】（版本、年級、科目、範圍），執行以下動作：
-1.  **搜尋策略：** 使用關鍵字搜尋該版本的官方資訊。    * 例如搜尋：「[版本] [年級] [科目] 教學進度表」或「[版本] [年級] [科目] 目錄」。
-2.  **建立知識庫：** 從搜尋結果中，找出該「考試範圍」所涵蓋的單元名稱及核心學習概念。
-3.  **基礎檢核：** 依據網路上查到的單元主題，判斷試卷題目是否明顯偏離主題（例如：五年級考卷出現六年級的單元名稱）。
-
-## 步驟 3：審查與輸出
-比對「試卷內容」與「步驟 1 或 2 取得的知識」，輸出審查報告。
+## 2. 輸入資料處理規則
+{scenario_prompt}
+* 若無教材，請根據【元數據】（版本、年級、科目）搜尋教學進度表，判斷是否超綱。
 
 ## 3. 試卷分析流程 (Analysis Workflow)
 請依序執行以下步驟，並產出報告：
@@ -451,72 +537,20 @@ def process_review_logic(exam_file, ref_files, grade, subject, strictness, exam_
 * 最末列：請統計各認知向度的「分數比重 (%)」。
 
 ### Step 4: 【難易度與負擔分析】 (Difficulty & Load)
-# 難度與學生程度分析標準
-在分析試卷時，請依據以下標準進行「難度分級」與「學生程度預測」：
+* **難度預測：** 分析整份試卷的難易度配置。
+* **成績分佈預測：** 請依據題目難度，預測班級學生的成績分佈比例。
 
-#### 1. 難度等級 (Difficulty Level)
-- **Level 1 (易/基礎)**：
-  - 特徵：單一步驟即可解題、直觀的定義回憶、數字簡單。
-  - 預測：全體學生（包含後段）皆應得分。
-- **Level 2 (中/應用)**：
-  - 特徵：需要兩個步驟以上的運算、概念的簡單應用、題意稍微轉折。
-  - 預測：中段與前段學生可得分，後段學生可能卡關。
-- **Level 3 (難/進階)**：
-  - 特徵：跨觀念整合、長篇閱讀理解(素養題)、陷阱題、逆向思考、繁複計算。
-  - 預測：僅前段學生能穩定得分，具有高鑑別度。
+### Step 5: 【素養導向深度審查】 (Competency Review)
+* **防偽快篩：** 抓出「假素養警示」（題目情境與解題無關，或純閱讀測驗）。
+* **真素養特徵：** 標註符合真實生活情境且需運用知識解決問題的優良試題。
 
-#### 2. 試卷整體結構分析
-- **配分平衡**：檢查 易:中:難 的比例是否符合常態（例如 3:5:2）。
-# 執行步驟
-1. **逐題掃描**：分析每一大題或關鍵題目的認知層次。
-2. **陷阱識別**：找出題目中是否有容易導致學生粗心的「誘答項」或「語意陷阱」。
-3. **程度預測**：預測該題目是用來篩選哪一類程度的學生。
-
-#### 整體講評
-請統計整份試卷的 易:中:難 比例，並評論這份試卷是否適合常態分班的學生？還是偏向資優班/補救教學使用？
-
-### Step 5: 【素養導向深度審查 (分科版)】 (Subject-Specific Competency Review)
-
-請先讀取本次審查的「科目」，並依據該科目的**專屬檢核標準**進行素養題審查：
-
-#### 1. 若為【國語文】(Chinese Language Arts)：
-* **檢核重點：** 是否評量「閱讀策略」與「表達能力」，而非僅是內容記憶。
-* **防偽快篩：**
-    * **⚠️ 假素養警示：** 題目雖然引用課外文章，但問題僅是「圈出錯字」或「直接摘錄文中句子」，未涉及推論、比較或主旨判斷。
-    * **✅ 真素養特徵：** 需運用「預測、推論、摘要、監控」等策略，或要求學生結合自身經驗進行表達。
-
-#### 2. 若為【數學】(Mathematics)：
-* **檢核重點：** 是否具備「數學建模」過程，且數據符合現實邏輯。
-* **防偽快篩：**
-    * **⚠️ 假素養警示 (裝飾性情境)：** 題目情境（如小明買菜）與算式無關，刪除情境後不影響作答；或是數據不合理（如：跑步速度每秒 100 公尺）。
-    * **✅ 真素養特徵：** 學生需要從情境中「轉譯」出數學算式，且情境中的條件（如打折規則、火車時刻）是解題的必要資訊。
-
-#### 3. 若為【自然科學】(Science)：
-* **檢核重點：** 是否評量「探究歷程」（觀察、假設、實驗設計、數據分析）。
-* **防偽快篩：**
-    * **⚠️ 假素養警示 (純閱讀測驗)：** 題目提供一篇科普文章，答案完全可從文中「複製貼上」，學生無需具備該單元的科學先備知識。
-    * **✅ 真素養特徵：** 題目提供實驗數據或現象圖表，學生需運用科學原理進行「解釋」或「預測」。
-
-#### 4. 若為【社會】(Social Studies)：
-* **檢核重點：** 是否評量「多重觀點」、「史料判讀」或「社會參與」。
-* **防偽快篩：**
-    * **⚠️ 假素養警示 (碎片化記憶)：** 雖然有地圖或年表，但考的只是「這是哪裡」或「發生在幾年」，未涉及因果關係或變遷分析。
-    * **✅ 真素養特徵：** 提供不同立場的觀點（如開發案的正反意見），要求學生分析差異或做出價值判斷。
-
-#### 5. 若為【英語文】(English)：
-* **檢核重點：** 是否符合「真實語用」(Pragmatics) 與「溝通功能」。
-* **防偽快篩：**
-    * **⚠️ 假素養警示 (文法代換)：** 對話情境生硬（不像真人對話），僅為了考特定的文法規則。
-    * **✅ 真素養特徵：** 模擬真實生活任務（如：點餐、看時刻表、寫邀請卡），且語言使用符合母語人士習慣。
-
-**評定輸出要求：**
-請針對該科目，列出試卷中符合上述「真素養特徵」的優良試題題號，並對「假素養警示」的題目提出修改建議。
-
-## 4. 輸出產出 (Final Output)
-請彙整以上五步驟分析，提供一份結構清晰的**「試卷審查總結報告」**，並包含具體的**「修改建議」**。
 ### 【修改具體建議 (Action Plan)】
 * 請彙整以上所有分析，提出具體的修改建議。
 * 針對紅色警示的題目優先處理，並列出具體優化方案。
+
+## 4. 輸出產出 (Final Output)
+請彙整以上分析，提供一份結構清晰的報告。
+若有嚴重錯誤，請用 ❌ 標示；若有建議，請用 ⚠️ 標示。
 
 ---
 {ref_data_block}
