@@ -281,7 +281,7 @@ def login_page():
             """, unsafe_allow_html=True)
             
             # 【修正 2】增加間距 (使用兩個 <br>)
-            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
             
             password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
             
