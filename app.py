@@ -38,25 +38,26 @@ st.markdown("""
     /* 隱藏側邊欄收合按鈕 */
     [data-testid="collapsedControl"] { display: none; }
     
-    /* 【修改 1】側邊欄頂部完全除白，緊貼邊緣 */
+    /* 側邊欄頂部完全除白 */
     section[data-testid="stSidebar"] .block-container {
         padding-top: 0rem !important;
         margin-top: 0rem !important;
     }
 
-    /* 【修改 2】滑桿調整：強制將文字(嚴格)移到橫桿下方 */
-    /* 找到滑桿組件中包含"數值"與"軌道"的容器(通常是第二個子元素)，並反轉排列 */
+    /* 滑桿調整：強制將文字(嚴格)移到橫桿下方 */
     div[data-testid="stSlider"] > div:nth-child(2) {
         display: flex;
         flex-direction: column-reverse; 
     }
-    
-    /* 微調反轉後的間距，讓文字離橫桿有一點距離 */
     div[data-testid="stSlider"] [data-testid="stMarkdownContainer"] p {
         margin-top: 8px !important;
         margin-bottom: 0px !important;
         font-weight: 600;
-        text-align: center; /* 讓文字置中 */
+        text-align: center;
+    }
+    /* 讓整個滑桿組件往上移動，靠近標題 */
+    div[data-testid="stSlider"] {
+        margin-top: -20px !important;
     }
 
     /* 標題樣式 */
@@ -128,14 +129,14 @@ st.markdown("""
         z-index: 1 !important;
     }
     
-    /* 側邊欄標題美化 */
+    /* 側邊欄標題美化 (修改：移除底線) */
     .sidebar-header {
         font-size: 1.1rem;
         font-weight: 700;
         color: #1e3a8a;
         margin-top: 15px;
         margin-bottom: 5px;
-        border-bottom: 2px solid #e0e0e0;
+        /* border-bottom: 2px solid #e0e0e0;  <-- 已移除 */
         padding-bottom: 5px;
     }
     </style>
@@ -343,7 +344,6 @@ def login_page():
                 </div>
             """, unsafe_allow_html=True)
             
-            # 【修改 3】增加明確的間距
             st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
             
             password = st.text_input("請輸入校內授權密碼", type="password", placeholder="請輸入校內授權密碼", label_visibility="collapsed")
@@ -363,7 +363,7 @@ def main_app():
 
     # --- 側邊欄設定區 ---
     with st.sidebar:
-        # 1. 試卷上傳 (CSS 已除白)
+        # 1. 試卷上傳
         st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
         uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
         
@@ -371,19 +371,36 @@ def main_app():
         st.markdown("<div class='sidebar-header'>📖 考試範圍</div>", unsafe_allow_html=True)
         exam_scope = st.text_input("輸入範圍", placeholder="如：康軒版 第3-4單元", label_visibility="collapsed")
         
-        # 3. 比對資料庫
-        st.markdown("<div class='sidebar-header'>☁️ 比對資料庫</div>", unsafe_allow_html=True)
-        drive_files = []
-        folder_id = st.secrets.get("google_drive_folder_id")
-        if folder_id: drive_files = get_drive_files(folder_id)
+        # 3. 比對設定 (自動媒合)
+        st.markdown("<div class='sidebar-header'>⚙️ 比對設定</div>", unsafe_allow_html=True)
         
-        file_options = {f['name']: f['id'] for f in drive_files} if drive_files else {}
-        selected_names = st.multiselect("選擇教材 (Google Drive)", list(file_options.keys()), placeholder="可多選教材或考古題", label_visibility="collapsed")
-        selected_drive_ids = [file_options[name] for name in selected_names]
+        # 年級與科目選擇
+        col_g, col_s = st.columns(2)
+        with col_g:
+            grade_opt = st.selectbox("年級", ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"], label_visibility="collapsed")
+        with col_s:
+            subject_opt = st.selectbox("科目", ["國語", "數學", "英語", "自然", "社會", "生活"], label_visibility="collapsed")
+
+        # 自動搜尋 Google Drive
+        drive_files = []
+        selected_drive_ids = []
+        folder_id = st.secrets.get("google_drive_folder_id")
+        
+        if folder_id:
+            drive_files = get_drive_files(folder_id)
+            # 自動媒合邏輯：檔名需同時包含「年級」與「科目」
+            matched_files = [f for f in drive_files if grade_opt in f['name'] and subject_opt in f['name']]
+            selected_drive_ids = [f['id'] for f in matched_files]
+            
+            # 顯示媒合結果 (讓老師知道抓到了什麼)
+            if matched_files:
+                matched_names = ", ".join([f['name'] for f in matched_files])
+                st.caption(f"✅ 已自動鎖定資料庫：\n{matched_names}")
+            else:
+                st.caption("⚠️ 資料庫中未找到符合該年級科目的檔案")
 
         # 4. 審查程度
         st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
-        # 這裡不需要換行，CSS 會將文字移到下方
         strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
         
         # 啟動按鈕
@@ -403,8 +420,10 @@ def main_app():
         if not uploaded_exam:
             st.warning("⚠️ 請先在左側上傳試卷 PDF")
         else:
+            # 傳遞使用者手動選擇的 年級 與 科目 給後端
             report, word_data, meta = process_review_logic(
-                uploaded_exam, selected_drive_ids, strictness, exam_scope
+                uploaded_exam, selected_drive_ids, strictness, exam_scope,
+                grade_opt, subject_opt 
             )
             st.session_state['ai_report'] = report
             st.session_state['word_file'] = word_data
@@ -424,14 +443,20 @@ def main_app():
         st.info(st.session_state['ai_report'])
 
 # --- 核心邏輯 ---
-def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope):
+def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope, selected_grade, selected_subject):
     with st.container():
         status = st.status("🔍 AI 教授正在審題中...", expanded=True)
         try:
             status.write("📄 讀取並分析試卷內容...")
             exam_text = extract_pdf_text(exam_file)
-            # 自動偵測試卷資訊
+            
+            # 使用者手動設定的資訊優先
             exam_meta = extract_exam_meta_enhanced(exam_text)
+            # 強制覆蓋為側邊欄選定的年級與科目 (避免試卷辨識錯誤)
+            exam_meta['grade'] = selected_grade
+            exam_meta['subject'] = selected_subject
+            exam_meta['info_str'] = f"{exam_meta['year']} {exam_meta['semester']} {selected_grade} {selected_subject} {exam_meta['exam_name']}"
+            
             status.write(f"✅ 試卷識別：{exam_meta['info_str']}")
             
             # 處理雲端教材
@@ -451,9 +476,9 @@ def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope):
                 ref_block = f"【比對資料庫內容 (Ground Truth)】：\n{ref_text[:50000]}\n"
                 scenario = "請以【比對資料庫內容】為絕對標準，檢查試卷是否超綱。"
             else:
-                status.write("⚠️ 未選擇比對資料庫，將依據內建 108 課綱知識進行通用審查。")
-                ref_block = "【比對資料庫】：未提供\n"
-                scenario = "請依據台灣教育部 108 課綱之該年級/科目標準進行審查。"
+                status.write("⚠️ 未找到對應教材，將依據 108 課綱知識庫進行通用審查。")
+                ref_block = "【比對資料庫】：未提供 (請執行通用審查)\n"
+                scenario = f"請依據台灣教育部 108 課綱之【{selected_grade}】【{selected_subject}】標準進行審查。"
 
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
@@ -466,7 +491,7 @@ def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope):
 
 ## 1. 任務目標
 針對上傳的試卷進行專業審題。
-**試卷資訊 (自動偵測)：** {exam_meta['info_str']}
+**試卷資訊：** {selected_grade} {selected_subject}
 **考試範圍：** {exam_scope if exam_scope else "未指定"}
 **審查嚴格度：** {strictness}
 
