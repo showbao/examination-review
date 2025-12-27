@@ -494,9 +494,11 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
    - ⛔ **若該大項無任何問題，請直接輸出單行文字：「✅ 本大項全數通過，無異常試題。」**
    - ⛔ **嚴禁**在無問題時繪製空表格或列出「通過」的題目。
 2. **格式要求**：
+   - 表格優先，檢核結果請務必使用 **Markdown Table** 呈現。
    - 必須使用 Markdown 語法。
    - 不要使用 Code Block (```) 包覆報告。
    - 標題層級清楚 (###)。
+   - 視覺標示：使用 ✅、⚠️、❌ 進行視覺引導。
 
 ## 4. 審查流程 (Analysis Workflow)
 請依序填寫以下報告內容：
