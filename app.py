@@ -129,14 +129,13 @@ st.markdown("""
         z-index: 1 !important;
     }
     
-    /* 側邊欄標題美化 (修改：移除底線) */
+    /* 側邊欄標題美化 */
     .sidebar-header {
         font-size: 1.1rem;
         font-weight: 700;
         color: #1e3a8a;
         margin-top: 15px;
         margin-bottom: 5px;
-        /* border-bottom: 2px solid #e0e0e0;  <-- 已移除 */
         padding-bottom: 5px;
     }
     </style>
@@ -284,7 +283,7 @@ def generate_word_report_doc(text, exam_meta):
     doc.save(bio)
     return bio
 
-# --- 3. 強化版試卷資訊擷取 ---
+# --- 3. 強化版試卷資訊擷取 (自動偵測) ---
 def extract_exam_meta_enhanced(text):
     import datetime
     today = datetime.date.today().strftime("%Y/%m/%d")
@@ -299,13 +298,18 @@ def extract_exam_meta_enhanced(text):
     if m_year: meta['year'] = f"{m_year.group(1)}學年度"
     m_sem = re.search(r'(上|下)\s*學期', sample)
     if m_sem: meta['semester'] = f"{m_sem.group(1)}學期"
+    
+    # 偵測年級 (擴充關鍵字)
     m_grade = re.search(r'([一二三四五六])\s*年級', sample)
     if m_grade: meta['grade'] = f"{m_grade.group(1)}年級"
+    
+    # 偵測科目
     subjects = ["國語", "數學", "英語", "英文", "自然", "社會", "生活"]
     for sub in subjects:
         if sub in sample:
             meta['subject'] = sub
             break
+            
     m_exam = re.search(r'(期中|期末|第[一二三]次|定期)評量', sample)
     if m_exam: meta['exam_name'] = m_exam.group(0)
     elif "期末" in sample: meta['exam_name'] = "期末評量"
@@ -388,16 +392,18 @@ def main_app():
         
         if folder_id:
             drive_files = get_drive_files(folder_id)
-            # 自動媒合邏輯：檔名需同時包含「年級」與「科目」
-            matched_files = [f for f in drive_files if grade_opt in f['name'] and subject_opt in f['name']]
+            
+            # 【關鍵修改】自動媒合邏輯改為：檔名只要包含「科目」即可
+            # 因為檔名不區分年級，所以我們只抓出該科目的檔案 (可能是總綱)，然後讓 AI 自己去裡面翻找對應年級的內容
+            matched_files = [f for f in drive_files if subject_opt in f['name']]
             selected_drive_ids = [f['id'] for f in matched_files]
             
-            # 顯示媒合結果 (讓老師知道抓到了什麼)
+            # 顯示媒合結果
             if matched_files:
                 matched_names = ", ".join([f['name'] for f in matched_files])
-                st.caption(f"✅ 已自動鎖定資料庫：\n{matched_names}")
+                st.caption(f"✅ 已鎖定科目資料庫：\n{matched_names}")
             else:
-                st.caption("⚠️ 資料庫中未找到符合該年級科目的檔案")
+                st.caption(f"⚠️ 資料庫中未找到【{subject_opt}】相關檔案")
 
         # 4. 審查程度
         st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
@@ -452,7 +458,7 @@ def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope, selec
             
             # 使用者手動設定的資訊優先
             exam_meta = extract_exam_meta_enhanced(exam_text)
-            # 強制覆蓋為側邊欄選定的年級與科目 (避免試卷辨識錯誤)
+            # 強制覆蓋為側邊欄選定的年級與科目
             exam_meta['grade'] = selected_grade
             exam_meta['subject'] = selected_subject
             exam_meta['info_str'] = f"{exam_meta['year']} {exam_meta['semester']} {selected_grade} {selected_subject} {exam_meta['exam_name']}"
@@ -472,13 +478,16 @@ def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope, selec
             
             # 建構 Prompt
             ref_block = ""
+            scenario_msg = ""
+            
             if ref_text:
-                ref_block = f"【比對資料庫內容 (Ground Truth)】：\n{ref_text[:50000]}\n"
-                scenario = "請以【比對資料庫內容】為絕對標準，檢查試卷是否超綱。"
+                ref_block = f"【比對資料庫內容 (此為 {selected_subject} 完整課綱)】：\n{ref_text[:50000]}\n"
+                # 【關鍵 Prompt 修改】指令 AI 從大檔案中撈出特定年級的標準
+                scenario_msg = f"請注意：提供的參考資料可能包含多個年級。請務必先檢索出【{selected_grade}】的學習內容與學習表現，以此為絕對標準，檢查試卷是否超綱。"
             else:
                 status.write("⚠️ 未找到對應教材，將依據 108 課綱知識庫進行通用審查。")
                 ref_block = "【比對資料庫】：未提供 (請執行通用審查)\n"
-                scenario = f"請依據台灣教育部 108 課綱之【{selected_grade}】【{selected_subject}】標準進行審查。"
+                scenario_msg = f"請依據台灣教育部 108 課綱之【{selected_grade}】【{selected_subject}】標準進行審查。"
 
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
@@ -487,81 +496,40 @@ def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope, selec
             status.write("🧠 Gemini 3.0 Pro 正在進行深度比對...")
             
             prompt = f"""
-# Role: 你是一位精通「台灣教育部 108 課綱」與各版本教科書（康軒、南一、翰林等）的資深教材審題專家。你的任務是審查使用者上傳的試卷，確保其符合教學進度、邏輯嚴謹，且具備真實的素養評量功能。
+# Role: 台灣國小教育評量暨素養導向命題專家
 
-# 核心運作邏輯 (Workflow)
-收到試卷後，請嚴格依照以下 **6 個步驟** 進行分析。
-
+## 1. 任務目標
+針對上傳的試卷進行專業審題。
 **試卷資訊：** {selected_grade} {selected_subject}
 **考試範圍：** {exam_scope if exam_scope else "未指定"}
 **審查嚴格度：** {strictness}
 
----
+## 2. 審查基準
+{scenario_msg}
 
-### Step 0: 【試卷結構與格式快篩】 (Format Check)
-* **配分檢核**：計算整份試卷總分是否精確等於 100 分？
-* **題號連續性**：檢查題號是否連續？有無重複或跳號？
-* **版面與圖表**：評估圖片清晰度、圖表標題與座標軸是否完整。
+## 3. 審查流程 (Analysis Workflow)
+請依序輸出以下內容：
 
-### Step 1: 【命題範圍與合規性檢核】 (Scope & Compliance)
-**[資料來源判定]**
-1.  **優先機制 (Database First)**：請優先讀取系統提供的**「比對資料庫教材」**（依據教師勾選的年度、版本、範圍所檢索出的檔案）。這份資料是審查的「最高準則」。
-2.  **備援機制 (Search Fallback)**：若系統未提供教材檔案（或檔案無法讀取），請**務必**啟動 **Google Search**。
-    * 搜尋指令：「[版本] [年級] [科目] [學期] 目錄」或「教學進度表」。
-    * 建立基準：確認該次「考試範圍」包含哪些單元與核心概念。
+### Step 1: 【命題範圍檢核】
+* 檢查是否超出指定的「考試範圍」或「比對資料庫」內容。
+* 若有超綱，請明確指出題號。
 
-**[檢核項目]**
-* **超綱檢查**：題目是否超出上述「比對資料庫」或「搜尋基準」的範圍？
-* **用語一致性**：專有名詞、定義是否與該版本教材完全一致？
-* **課綱保底**：若無特定版本資訊，則以「教育部 108 課綱」該年段學習內容為底線。
+### Step 2: 【題幹與邏輯品質審查】
+* 檢查語意不清、邏輯謬誤、圖片模糊或選項誘答力不足的問題。
 
-### Step 2: 【題幹與邏輯品質審查】 (Logic & Quality)
-* **邏輯封閉性**：單選題是否僅有唯一正解？選項間是否互斥？
-* **語意清晰度**：是否存在雙重否定、語意歧義或條件不足。
-* **誘答項檢核**：錯誤選項是否具備合理的誘答力。
+### Step 3: 【雙向細目表核算】
+請繪製表格，欄位包含：單元名稱 | 記憶 | 了解 | 應用 | 分析 | 評鑑 | 創造。
+並在格內填入對應題號。
 
-### Step 3: 【素養導向深度審查 (分科版)】 (Competency Review)
-請依據科目類別，執行「真偽素養」辨識（生活課程請依內容屬性併入自然或社會判斷）：
+### Step 4: 【難易度與負擔分析】
+* 分析整份試卷的難易度配置與成績分佈預測。
 
-* **國語文**：
-    * ✅ **真素養**：需運用預測、推論、摘要策略；含連續/非連續文本。
-    * ⚠️ **假素養**：僅圈錯字或直接摘錄句子，未涉及層次思考。
-* **數學**：
-    * ✅ **真素養**：具備「數學建模」過程；情境數據符合現實邏輯。
-    * ⚠️ **假素養**：情境與算式無關（裝飾性）；數據違背常理。
-* **自然科學** (含生活-觀察體驗)：
-    * ✅ **真素養**：評量觀察、假設、實驗設計或數據解釋。
-    * ⚠️ **假素養**：答案可直接從文中複製，無需先備知識。
-* **社會** (含生活-人際環境)：
-    * ✅ **真素養**：評量多重觀點、史料判讀或社會參與。
-    * ⚠️ **假素養**：僅考碎片化記憶，缺乏因果分析。
-* **英語文**：
-    * ✅ **真素養**：符合真實語用 (Pragmatics)，模擬真實溝通。
-    * ⚠️ **假素養**：對話生硬，僅為考文法規則而堆砌。
+### Step 5: 【素養導向深度審查】
+* 區分「真素養題」與「假素養題」，並給予評語。
 
-### Step 4: 【雙向細目表核算】 (Two-Way Specification Table)
-請依據 Step 3 的分析結果，繪製雙向細目表。
-* **縱軸**：單元名稱。
-* **橫軸**：認知歷程（記憶、了解、應用、分析、評鑑、創造）。
-* **要求**：填寫題號，並計算各向度百分比。**請務必自我檢核最後一列總和是否為 100%。**
-
-### Step 5: 【難易度與學生成績預測】 (Difficulty & Prediction)
-* **無效難度檢查**：標註「計算過度繁瑣」但觀念簡單的題目。
-* **成績分佈預測**：依據題目難度 (L1易/L2中/L3難) 預測三種分數區間的學生表現。
-
----
-
-# 輸出報告規範 (Output Formatting)
-為了方便使用者閱讀及轉貼至 Word 文件，請務必嚴格遵守以下格式：
-
-1.  **標題清晰**：使用 H2 (`##`) 作為主要區塊標題。
-2.  **表格優先**：所有數據類、清單類的分析，請一律使用 Markdown 表格呈現。
-3.  **避免程式碼區塊**：**絕對不要**將一般文字內容放在 Code Block (```) 中，這會造成 Word 貼上時格式跑掉。
-4.  **具體結構**：
-    * **一、審查總結** (條列式重點)
-    * **二、詳細審題報告** (必須是表格：題號 | 審查向度 | 問題類型 | 具體理由與建議)
-    * **三、雙向細目表** (表格)
-    * **四、難度與成績預測** (表格)
+### 【修改具體建議 (Action Plan)】 (最重要的總結)
+* 請彙整以上分析，列出 3-5 點具體的修改建議。
+* 針對紅色警示 (❌) 的題目優先處理。
 
 ---
 {ref_block}
