@@ -23,7 +23,7 @@ st.set_page_config(
     page_title="北屯區建功國小智慧審題系統V2",
     page_icon="🏫",
     layout="wide",
-    initial_sidebar_state="expanded" # 保持側邊欄展開
+    initial_sidebar_state="expanded"
 )
 
 # 自訂 CSS
@@ -42,22 +42,6 @@ st.markdown("""
     section[data-testid="stSidebar"] .block-container {
         padding-top: 0rem !important;
         margin-top: 0rem !important;
-    }
-
-    /* 滑桿調整：強制將文字(嚴格)移到橫桿下方 */
-    div[data-testid="stSlider"] > div:nth-child(2) {
-        display: flex;
-        flex-direction: column-reverse; 
-    }
-    div[data-testid="stSlider"] [data-testid="stMarkdownContainer"] p {
-        margin-top: 8px !important;
-        margin-bottom: 0px !important;
-        font-weight: 600;
-        text-align: center;
-    }
-    /* 讓整個滑桿組件往上移動，靠近標題 */
-    div[data-testid="stSlider"] {
-        margin-top: -20px !important;
     }
 
     /* 標題樣式 */
@@ -371,43 +355,13 @@ def main_app():
         st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
         uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
         
-        # 2. 考試範圍
+        # 2. 課本習作上傳 (新增功能)
+        st.markdown("<div class='sidebar-header'>📘 課本、習作上傳 (可多選)</div>", unsafe_allow_html=True)
+        uploaded_refs = st.file_uploader("選擇課本或習作 PDF", type=['pdf'], key="ref", accept_multiple_files=True, label_visibility="collapsed")
+        
+        # 3. 考試範圍 (保留，方便AI判斷)
         st.markdown("<div class='sidebar-header'>📖 考試範圍</div>", unsafe_allow_html=True)
         exam_scope = st.text_input("輸入範圍", placeholder="如：康軒版 第3-4單元", label_visibility="collapsed")
-        
-        # 3. 比對設定 (自動媒合)
-        st.markdown("<div class='sidebar-header'>⚙️ 比對設定</div>", unsafe_allow_html=True)
-        
-        # 年級與科目選擇
-        col_g, col_s = st.columns(2)
-        with col_g:
-            grade_opt = st.selectbox("年級", ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"], label_visibility="collapsed")
-        with col_s:
-            subject_opt = st.selectbox("科目", ["國語", "數學", "英語", "自然", "社會", "生活"], label_visibility="collapsed")
-
-        # 自動搜尋 Google Drive
-        drive_files = []
-        selected_drive_ids = []
-        folder_id = st.secrets.get("google_drive_folder_id")
-        
-        if folder_id:
-            drive_files = get_drive_files(folder_id)
-            
-            # 【關鍵修改】自動媒合邏輯改為：檔名只要包含「科目」即可
-            # 因為檔名不區分年級，所以我們只抓出該科目的檔案 (可能是總綱)，然後讓 AI 自己去裡面翻找對應年級的內容
-            matched_files = [f for f in drive_files if subject_opt in f['name']]
-            selected_drive_ids = [f['id'] for f in matched_files]
-            
-            # 顯示媒合結果
-            if matched_files:
-                matched_names = ", ".join([f['name'] for f in matched_files])
-                st.caption(f"✅ 已鎖定科目資料庫：\n{matched_names}")
-            else:
-                st.caption(f"⚠️ 資料庫中未找到【{subject_opt}】相關檔案")
-
-        # 4. 審查程度
-        st.markdown("<div class='sidebar-header'>⚖️ 審查程度</div>", unsafe_allow_html=True)
-        strictness = st.select_slider("程度", options=["溫柔", "標準", "嚴格", "魔鬼"], value="嚴格", label_visibility="collapsed")
         
         # 啟動按鈕
         st.markdown("<br>", unsafe_allow_html=True)
@@ -426,10 +380,10 @@ def main_app():
         if not uploaded_exam:
             st.warning("⚠️ 請先在左側上傳試卷 PDF")
         else:
-            # 傳遞使用者手動選擇的 年級 與 科目 給後端
+            # 審查程度強制設為 "嚴格"
+            strictness = "嚴格"
             report, word_data, meta = process_review_logic(
-                uploaded_exam, selected_drive_ids, strictness, exam_scope,
-                grade_opt, subject_opt 
+                uploaded_exam, uploaded_refs, strictness, exam_scope
             )
             st.session_state['ai_report'] = report
             st.session_state['word_file'] = word_data
@@ -448,46 +402,69 @@ def main_app():
         )
         st.info(st.session_state['ai_report'])
 
-# --- 核心邏輯 ---
-def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope, selected_grade, selected_subject):
+# --- 核心邏輯 (重構版：自動路由) ---
+def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
     with st.container():
         status = st.status("🔍 AI 教授正在審題中...", expanded=True)
         try:
             status.write("📄 讀取並分析試卷內容...")
             exam_text = extract_pdf_text(exam_file)
             
-            # 使用者手動設定的資訊優先
+            # 自動偵測試卷資訊 (做為撈資料的依據)
             exam_meta = extract_exam_meta_enhanced(exam_text)
-            # 強制覆蓋為側邊欄選定的年級與科目
-            exam_meta['grade'] = selected_grade
-            exam_meta['subject'] = selected_subject
-            exam_meta['info_str'] = f"{exam_meta['year']} {exam_meta['semester']} {selected_grade} {selected_subject} {exam_meta['exam_name']}"
-            
             status.write(f"✅ 試卷識別：{exam_meta['info_str']}")
             
-            # 處理雲端教材
             ref_text = ""
             ref_source_list = []
-            if drive_ref_ids:
-                status.write(f"☁️ 下載並分析比對資料庫 ({len(drive_ref_ids)} 份)...")
-                for fid in drive_ref_ids:
-                    f_stream = download_drive_file(fid)
-                    if f_stream:
-                        ref_text += extract_pdf_text(f_stream) + "\n"
-                        ref_source_list.append(f"教材ID:{fid}")
-            
-            # 建構 Prompt
-            ref_block = ""
             scenario_msg = ""
-            
-            if ref_text:
-                ref_block = f"【比對資料庫內容 (此為 {selected_subject} 完整課綱)】：\n{ref_text[:50000]}\n"
-                # 【關鍵 Prompt 修改】指令 AI 從大檔案中撈出特定年級的標準
-                scenario_msg = f"請注意：提供的參考資料可能包含多個年級。請務必先檢索出【{selected_grade}】的學習內容與學習表現，以此為絕對標準，檢查試卷是否超綱。"
+            ref_block = ""
+
+            # --- 核心判斷邏輯 ---
+            if local_ref_files:
+                # 情境 A：使用者有上傳課本/習作
+                status.write(f"📘 使用者已上傳 {len(local_ref_files)} 份教材，以使用者檔案為準。")
+                for f in local_ref_files: 
+                    ref_text += extract_pdf_text(f) + "\n"
+                    ref_source_list.append(f"上傳：{f.name}")
+                
+                ref_block = f"【比對基準 (使用者上傳)】：\n{ref_text[:60000]}\n"
+                scenario_msg = "請以【比對基準】為絕對標準，檢查試卷是否超綱。"
+                
             else:
-                status.write("⚠️ 未找到對應教材，將依據 108 課綱知識庫進行通用審查。")
-                ref_block = "【比對資料庫】：未提供 (請執行通用審查)\n"
-                scenario_msg = f"請依據台灣教育部 108 課綱之【{selected_grade}】【{selected_subject}】標準進行審查。"
+                # 情境 B：無上傳，啟動自動撈取機制
+                detected_grade = exam_meta.get('grade', '')
+                detected_subject = exam_meta.get('subject', '')
+                
+                if "未偵測" in detected_grade or "未偵測" in detected_subject:
+                    status.warning("⚠️ 無法自動識別年級或科目，將改用通用課綱標準審查。")
+                    ref_block = "【比對基準】：未找到特定教材，請依據台灣教育部 108 課綱標準審查。\n"
+                    scenario_msg = "請依據台灣教育部 108 課綱之該年級/科目標準進行審查。"
+                else:
+                    status.write(f"☁️ 啟動雲端比對：正在搜尋【{detected_subject}】領域課綱...")
+                    
+                    # 搜尋 Google Drive (只搜科目)
+                    drive_files = []
+                    folder_id = st.secrets.get("google_drive_folder_id")
+                    if folder_id:
+                        all_files = get_drive_files(folder_id)
+                        # 邏輯修正 V12：只比對「科目」
+                        matched_files = [f for f in all_files if detected_subject in f['name']]
+                        
+                        if matched_files:
+                            status.write(f"✅ 找到 {len(matched_files)} 份【{detected_subject}】領域檔案，正在提取【{detected_grade}】內容...")
+                            for f in matched_files:
+                                f_stream = download_drive_file(f['id'])
+                                if f_stream:
+                                    ref_text += extract_pdf_text(f_stream) + "\n"
+                                    ref_source_list.append(f"雲端：{f['name']}")
+                            
+                            ref_block = f"【比對基準 (雲端資料庫)】：\n{ref_text[:60000]}\n"
+                            # 關鍵 Prompt 修正：命令 AI 在檔案中找特定年級
+                            scenario_msg = f"請務必先閱讀【比對基準】檔案，並在其中搜尋對應【{detected_grade}】的「學習表現」與「學習內容」，以此為絕對標準檢查試卷。"
+                        else:
+                            status.warning(f"📭 資料庫中未找到 {detected_subject} 的檔案，改用通用標準。")
+                            ref_block = "【比對基準】：未提供 (資料庫無對應檔)\n"
+                            scenario_msg = f"請依據台灣教育部 108 課綱之【{detected_grade}】【{detected_subject}】標準進行審查。"
 
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
@@ -500,18 +477,18 @@ def process_review_logic(exam_file, drive_ref_ids, strictness, exam_scope, selec
 
 ## 1. 任務目標
 針對上傳的試卷進行專業審題。
-**試卷資訊：** {selected_grade} {selected_subject}
+**試卷資訊 (自動偵測)：** {exam_meta['info_str']}
 **考試範圍：** {exam_scope if exam_scope else "未指定"}
 **審查嚴格度：** {strictness}
 
-## 2. 審查基準
+## 2. 審查基準 (Ground Truth)
 {scenario_msg}
 
 ## 3. 審查流程 (Analysis Workflow)
 請依序輸出以下內容：
 
 ### Step 1: 【命題範圍檢核】
-* 檢查是否超出指定的「考試範圍」或「比對資料庫」內容。
+* 檢查是否超出提供的【比對基準】內容。
 * 若有超綱，請明確指出題號。
 
 ### Step 2: 【題幹與邏輯品質審查】
