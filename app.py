@@ -58,4 +58,4 @@ if st.button("開始分析"):
 
 # --- 底部版權資訊 ---
 st.markdown("---")
-st.caption("全能技術長 (CTO) 協助建置 | v0.1.0 Connection Test")name)
+st.caption("全能技術長 (CTO) 協助建置 | v0.1.0 Connection Test")
