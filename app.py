@@ -21,7 +21,7 @@ except ImportError:
 
 # --- 0. 全局設定與 CSS 美化 ---
 st.set_page_config(
-    page_title="北屯區建功國小智慧審題系統V2",
+    page_title="北屯區建功國小智慧審題系統V13",
     page_icon="🏫",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -45,21 +45,6 @@ st.markdown("""
         margin-top: 0rem !important;
     }
 
-    /* 滑桿調整：強制將文字(嚴格)移到橫桿下方 */
-    div[data-testid="stSlider"] > div:nth-child(2) {
-        display: flex;
-        flex-direction: column-reverse; 
-    }
-    div[data-testid="stSlider"] [data-testid="stMarkdownContainer"] p {
-        margin-top: 8px !important;
-        margin-bottom: 0px !important;
-        font-weight: 600;
-        text-align: center;
-    }
-    div[data-testid="stSlider"] {
-        margin-top: -20px !important;
-    }
-
     /* 標題樣式 */
     h1 { color: #2c3e50; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; text-align: center; }
     h2, h3 { color: #34495e; font-weight: 700; }
@@ -74,9 +59,6 @@ st.markdown("""
     }
     
     /* 2. 上傳區樣式 */
-    .upload-label { font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-bottom: 0.5rem; display: block; }
-    .upload-sub { font-size: 0.9rem; color: #6b7280; margin-bottom: 0.8rem; display: block; }
-    
     div[data-testid="stFileUploader"] {
         background-color: white;
         border: 1px solid #d1d5db;
@@ -115,9 +97,6 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* 隱藏預設元素 */
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-    
     /* 輸入框美化 */
     input[type="password"], input[type="text"] {
         border: 1px solid #d1d5db !important;
@@ -125,8 +104,6 @@ st.markdown("""
         padding: 10px !important;
         color: #333333 !important;
         background-color: #ffffff !important;
-        position: relative !important;
-        z-index: 1 !important;
     }
     
     /* 側邊欄標題美化 */
@@ -200,20 +177,23 @@ def clean_latex_math(text):
     text = text.replace(r'\le', '≤')
     text = text.replace(r'\ge', '≥')
     
+    # 6. 處理 <br> 為換行符 (針對 Word)
+    text = text.replace('<br>', '\n')
+    
     return text
 
 def add_correction_block(doc):
-    """插入命題老師審題後修正說明區塊"""
+    """插入命題修正說明區塊"""
     doc.add_paragraph() # 空一行
     p = doc.add_paragraph()
-    run = p.add_run("命題老師審題後修正說明：")
+    run = p.add_run("命題修正說明：") # [V13] 修正文字
     run.bold = True
     run.font.size = Pt(14)
     run.font.name = 'Microsoft JhengHei'
     run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     
-    # 預留 4 行空白行供手寫
-    for _ in range(4):
+    # 預留 4-5 行空白行供手寫
+    for _ in range(5):
         p_empty = doc.add_paragraph()
         p_empty.paragraph_format.line_spacing = Pt(24) # 保持固定行高
 
@@ -242,8 +222,6 @@ def parse_markdown_to_word(doc, text):
             # 如果前面已經有 Step 內容，插入修正說明區塊
             if has_previous_step:
                 add_correction_block(doc)
-                # 【修正 2】移除強制換頁 (直接接續)
-                # doc.add_page_break() 
             
             has_previous_step = True 
             
@@ -281,17 +259,14 @@ def parse_markdown_to_word(doc, text):
             # 清單處理
             if line.startswith('* ') or line.startswith('- '):
                 clean_line = line[2:].strip()
-                if re.match(r'^(\*\*)?(問題|建議|現狀|分析|依據|結論|優點)', clean_line):
-                    pass 
-                else:
-                    p.style = 'List Bullet'
+                p.style = 'List Bullet'
             
             # 粗體解析 + 數學清理
+            # 簡單處理 Markdown **bold**
             parts = re.split(r'(\*\*.*?\*\*)', clean_line)
             for part in parts:
                 cleaned_part = clean_latex_math(part) # 清理數學符號
                 if part.startswith('**') and part.endswith('**'):
-                    # 移除 ** 後再清理
                     content = part[2:-2]
                     content = clean_latex_math(content)
                     run = p.add_run(content)
@@ -322,31 +297,15 @@ def create_word_table(doc, markdown_lines):
         table.style = 'Table Grid'
         
         # 【修正 3】表格欄寬控制
-        # 取消自動調整，才能手動設定寬度
         table.autofit = False 
         table.allow_autofit = False
         
-        # 設定總寬度約 18.4cm (A4 21cm - 左右邊界 2.6cm)
-        # 這裡用權重分配比較保險
-        # 若是 3 欄 (題號, 類型, 說明)，給予說明欄最大空間
+        # 針對 Step 1 & 2 的檢核表格 (3欄: 題號, 類型, 說明)
+        # 設定總寬度約 18.0cm (A4 21cm - 左右邊界 2.54cm)
         if col_count == 3:
-            for row in table.rows: # 預先建立行以便後續設定 (但 python-docx 通常是對 column 設定)
-                pass 
-                
-            # 設定 Column 寬度 (單位: Cm)
-            # 注意：需確保 table 物件已有對應 columns
-            try:
-                table.columns[0].width = Cm(2.5)  # 題號
-                table.columns[1].width = Cm(3.5)  # 違規類型
-                table.columns[2].width = Cm(12.0) # 說明 (加大)
-            except:
-                pass # 若欄位數不符則略過，維持預設
-        
-        elif col_count == 2:
-             try:
-                table.columns[0].width = Cm(4.0) 
-                table.columns[1].width = Cm(14.0) 
-             except: pass
+            # 必須先手動加入 row 才能存取 cell (Python-docx table 初始化有 row[0])
+            # 但若要設定 column width，通常透過 cell width 設定最穩
+            pass 
 
         # --- 標題列設定 ---
         hdr_cells = table.rows[0].cells
@@ -354,7 +313,16 @@ def create_word_table(doc, markdown_lines):
             if i < len(hdr_cells):
                 hdr_cells[i].text = header_text
                 
-                # 標題列背景淺灰色 (D9D9D9)
+                # 欄寬設定邏輯 (V13需求：說明欄放大)
+                if col_count == 3:
+                    if i == 0: hdr_cells[i].width = Cm(2.5)   # 題號
+                    elif i == 1: hdr_cells[i].width = Cm(3.5) # 類型
+                    elif i == 2: hdr_cells[i].width = Cm(12.0)# 說明
+                elif col_count == 2:
+                    if i == 0: hdr_cells[i].width = Cm(4.0)
+                    elif i == 1: hdr_cells[i].width = Cm(14.0)
+
+                # 標題列背景淺灰色
                 shading_elm = parse_xml(r'<w:shd {} w:fill="D9D9D9"/>'.format(nsdecls('w')))
                 hdr_cells[i]._element.tcPr.append(shading_elm)
                 
@@ -376,6 +344,15 @@ def create_word_table(doc, markdown_lines):
                     final_text = clean_latex_math(final_text) # 【修正 4】表格內數學符號清理
                     row_cells[i].text = final_text
                     
+                    # 延續欄寬設定
+                    if col_count == 3:
+                        if i == 0: row_cells[i].width = Cm(2.5)
+                        elif i == 1: row_cells[i].width = Cm(3.5)
+                        elif i == 2: row_cells[i].width = Cm(12.0)
+                    elif col_count == 2:
+                        if i == 0: row_cells[i].width = Cm(4.0)
+                        elif i == 1: row_cells[i].width = Cm(14.0)
+
                     # 表格內文字單行間距
                     for paragraph in row_cells[i].paragraphs:
                         paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
@@ -383,7 +360,7 @@ def create_word_table(doc, markdown_lines):
                             run.font.size = Pt(14)
                     
     except Exception as e:
-        doc.add_paragraph(f"[表格轉換異常]")
+        doc.add_paragraph(f"[表格轉換異常: {e}]")
 
 def generate_word_report_doc(text, exam_meta):
     doc = Document()
@@ -403,12 +380,13 @@ def generate_word_report_doc(text, exam_meta):
     font.size = Pt(14) 
     style._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     
-    # 設定固定行高 24點
+    # 設定固定行高 24pt
     paragraph_format = style.paragraph_format
     paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
     paragraph_format.line_spacing = Pt(24)
     
-    # 【修正 1】主標題修正
+    # 【V13 修正】移除第一行「# 試卷審查報告...」，直接顯示標題
+    # 這裡可以根據需求加入學校名稱，或維持空白僅顯示試卷資訊
     heading = doc.add_heading('臺中市北屯區建功國小AI審題報告', 0)
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for run in heading.runs:
@@ -416,7 +394,7 @@ def generate_word_report_doc(text, exam_meta):
         run.bold = True
         run.font.name = 'Microsoft JhengHei'
         run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
-        run.font.color.rgb = RGBColor(0, 0, 0) # 黑色
+        run.font.color.rgb = RGBColor(0, 0, 0)
     
     # 試卷資訊區塊
     p_info = doc.add_paragraph()
@@ -432,7 +410,6 @@ def generate_word_report_doc(text, exam_meta):
     c1.text = "命題教師："
     c2 = table.cell(0, 1)
     c2.text = "審題教師："
-    # 調整簽核欄位格式
     for row in table.rows:
         for cell in row.cells:
             for p in cell.paragraphs:
@@ -442,7 +419,7 @@ def generate_word_report_doc(text, exam_meta):
     
     doc.add_paragraph("\n") 
     
-    # 開始解析內容
+    # 開始解析 AI 產生的 Markdown 內容
     parse_markdown_to_word(doc, text)
     
     bio = BytesIO()
@@ -455,7 +432,7 @@ def extract_exam_meta_enhanced(text):
     today = datetime.date.today().strftime("%Y/%m/%d")
     
     meta = {
-        "year": "113學年度", "semester": "下學期", "exam_name": "定期評量",
+        "year": "113學年度", "semester": "下學期", "exam_name": "期末評量",
         "grade": "未偵測", "subject": "未偵測", "date_str": today
     }
     
@@ -465,11 +442,9 @@ def extract_exam_meta_enhanced(text):
     m_sem = re.search(r'(上|下)\s*學期', sample)
     if m_sem: meta['semester'] = f"{m_sem.group(1)}學期"
     
-    # 偵測年級 (擴充關鍵字)
     m_grade = re.search(r'([一二三四五六])\s*年級', sample)
     if m_grade: meta['grade'] = f"{m_grade.group(1)}年級"
     
-    # 偵測科目
     subjects = ["國語", "數學", "英語", "英文", "自然", "社會", "生活"]
     for sub in subjects:
         if sub in sample:
@@ -478,8 +453,6 @@ def extract_exam_meta_enhanced(text):
             
     m_exam = re.search(r'(期中|期末|第[一二三]次|定期)評量', sample)
     if m_exam: meta['exam_name'] = m_exam.group(0)
-    elif "期末" in sample: meta['exam_name'] = "期末評量"
-    elif "期中" in sample: meta['exam_name'] = "期中評量"
     
     meta['info_str'] = f"{meta['year']} {meta['semester']} {meta['grade']} {meta['subject']} {meta['exam_name']}"
     return meta
@@ -533,19 +506,15 @@ def main_app():
 
     # --- 側邊欄設定區 ---
     with st.sidebar:
-        # 1. 試卷上傳
         st.markdown("<div class='sidebar-header'>📂 試卷上傳</div>", unsafe_allow_html=True)
         uploaded_exam = st.file_uploader("選擇試卷 PDF", type=['pdf'], key="exam", label_visibility="collapsed")
         
-        # 2. 課本習作上傳 (新增功能)
         st.markdown("<div class='sidebar-header'>📘 課本、習作上傳 (可多選)</div>", unsafe_allow_html=True)
         uploaded_refs = st.file_uploader("選擇課本或習作 PDF", type=['pdf'], key="ref", accept_multiple_files=True, label_visibility="collapsed")
         
-        # 3. 考試範圍 (保留，方便AI判斷)
         st.markdown("<div class='sidebar-header'>📖 考試範圍</div>", unsafe_allow_html=True)
         exam_scope = st.text_input("輸入範圍", placeholder="如：康軒版 第3-4單元", label_visibility="collapsed")
         
-        # 啟動按鈕
         st.markdown("<br>", unsafe_allow_html=True)
         start_btn = st.button("🚀 AI 教授審題", type="primary", use_container_width=True)
         
@@ -562,10 +531,8 @@ def main_app():
         if not uploaded_exam:
             st.warning("⚠️ 請先在左側上傳試卷 PDF")
         else:
-            # 審查程度強制設為 "嚴格"
-            strictness = "嚴格"
             report, word_data, meta = process_review_logic(
-                uploaded_exam, uploaded_refs, strictness, exam_scope
+                uploaded_exam, uploaded_refs, exam_scope
             )
             st.session_state['ai_report'] = report
             st.session_state['word_file'] = word_data
@@ -574,7 +541,12 @@ def main_app():
     # 結果顯示區
     if st.session_state['ai_report']:
         st.markdown("---")
-        st.subheader("📊 審題報告預覽")
+        
+        # 【V13 修正】網頁標題修正 (單行、置中)
+        title_text = st.session_state['exam_meta']['info_str']
+        st.markdown(f"<h2 style='text-align: center;'>{title_text}</h2>", unsafe_allow_html=True)
+        
+        # 下載按鈕
         st.download_button(
             label="📥 下載 Word 報告 (.docx)",
             data=st.session_state['word_file'],
@@ -582,38 +554,35 @@ def main_app():
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             type="primary"
         )
-        st.info(st.session_state['ai_report'])
+        
+        # 【V13 修正】啟用 HTML 渲染以支援表格 <br>
+        st.markdown(st.session_state['ai_report'], unsafe_allow_html=True)
 
-# --- 核心邏輯 (V12.1 嚴格Prompt修正版) ---
-def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
+# --- 核心邏輯 (V13.0 嚴格 Prompt 修正版) ---
+def process_review_logic(exam_file, local_ref_files, exam_scope):
     with st.container():
         status = st.status("🔍 AI 教授正在審題中...", expanded=True)
         try:
             status.write("📄 讀取並分析試卷內容...")
             exam_text = extract_pdf_text(exam_file)
             
-            # 自動偵測試卷資訊
             exam_meta = extract_exam_meta_enhanced(exam_text)
             status.write(f"✅ 試卷識別：{exam_meta['info_str']}")
             
             ref_text = ""
-            ref_source_list = []
             scenario_msg = ""
             ref_block = ""
 
             # --- 核心判斷邏輯 ---
             if local_ref_files:
-                # 情境 A：使用者有上傳課本/習作
                 status.write(f"📘 使用者已上傳 {len(local_ref_files)} 份教材，以使用者檔案為準。")
                 for f in local_ref_files: 
                     ref_text += extract_pdf_text(f) + "\n"
-                    ref_source_list.append(f"上傳：{f.name}")
                 
                 ref_block = f"【比對基準 (使用者上傳)】：\n{ref_text[:60000]}\n"
                 scenario_msg = "請以【比對基準】為絕對標準，檢查試卷是否超綱。"
                 
             else:
-                # 情境 B：無上傳，啟動自動撈取機制 (只搜科目)
                 detected_grade = exam_meta.get('grade', '')
                 detected_subject = exam_meta.get('subject', '')
                 
@@ -624,12 +593,10 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                 else:
                     status.write(f"☁️ 啟動雲端比對：正在搜尋【{detected_subject}】領域課綱...")
                     
-                    # 搜尋 Google Drive (只搜科目)
                     drive_files = []
                     folder_id = st.secrets.get("google_drive_folder_id")
                     if folder_id:
                         all_files = get_drive_files(folder_id)
-                        # 邏輯修正 V12：只比對「科目」
                         matched_files = [f for f in all_files if detected_subject in f['name']]
                         
                         if matched_files:
@@ -638,10 +605,8 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                                 f_stream = download_drive_file(f['id'])
                                 if f_stream:
                                     ref_text += extract_pdf_text(f_stream) + "\n"
-                                    ref_source_list.append(f"雲端：{f['name']}")
                             
                             ref_block = f"【比對基準 (雲端資料庫)】：\n{ref_text[:60000]}\n"
-                            # 關鍵 Prompt 修正：命令 AI 在檔案中找特定年級
                             scenario_msg = f"請務必先閱讀【比對基準】檔案，並在其中搜尋對應【{detected_grade}】的「學習表現」與「學習內容」，以此為絕對標準檢查試卷。"
                         else:
                             status.warning(f"📭 資料庫中未找到 {detected_subject} 的檔案，改用通用標準。")
@@ -650,10 +615,11 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
 
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("models/gemini-3-pro-preview")
+            model = genai.GenerativeModel("models/gemini-1.5-flash") # V13 建議使用 1.5-flash 支援更長文本且快速
             
-            status.write("🧠 Gemini 3.0 Pro 正在進行深度比對...")
+            status.write("🧠 Gemini 正在進行深度比對...")
             
+            # 【V13.0 System Prompt 置換】
             prompt = f"""
 # Role: 台灣國小教育評量暨素養導向命題專家
 
@@ -661,61 +627,77 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
 針對上傳的試卷進行專業審題，產出一份符合 Markdown 格式的審查報告。
 **試卷資訊：** {exam_meta['info_str']}
 **考試範圍：** {exam_scope if exam_scope else "未指定"}
-**審查嚴格度：** {strictness}
 
 ## 2. 審查基準 (Ground Truth)
 {scenario_msg}
 
 ## 3. 輸出規範 (Strict Output Rules)
-你必須嚴格遵守以下輸出規則，否則任務失敗：
-1. **例外報告 (Exception Reporting)**：在 Step 1 和 Step 2，**僅列出有問題** (❌超綱、⚠️疑義) 的題目。
+1. **全表格化呈現**：分析結果**務必盡量使用 Markdown Table** 呈現。
+2. **例外報告 (Exception Reporting)**：在 Step 1 和 Step 2，**僅列出有問題** (❌超綱、⚠️疑義) 的題目。
    - ⛔ **若該大項無任何問題，請直接輸出單行文字：「✅ 本大項全數通過，無異常試題。」**
    - ⛔ **嚴禁**在無問題時繪製空表格或列出「通過」的題目。
-2. **格式要求**：
-   - 必須使用 Markdown 語法。
-   - 不要使用 Code Block (```) 包覆報告。
-   - 標題層級清楚 (###)。
+3. **格式要求**：不要使用 Code Block (```) 包覆報告。HTML 換行請用 <br>。
 
 ## 4. 審查流程 (Analysis Workflow)
-請依序填寫以下報告內容：
 
-### Step 1: 【命題範圍與合規性檢核】
-* **檢核邏輯**：比對題目是否超出【比對基準】或【考試範圍】。
-* **輸出內容**：僅列出違規題目。若全數符合，請依「例外報告」規則處理。
+### Step 1: 【命題範圍與合規性檢核】 (Scope & Compliance)
+**[檢核重點]**
+* **超綱判斷**：題目概念是否超出上述基準？（如：低年級出現高年級數學概念）。
+* **課綱對應**：題目是否符合該領域的學習表現（例如：自然科是否包含探究能力）。
+**[輸出格式]**
+| 題號 | 違規類型 | 檢核說明 |
+|---|---|---|
 
-### Step 2: 【題幹與邏輯品質審查】
-* **檢核邏輯**：檢查語意不清、雙重否定、邏輯謬誤、圖片模糊、選項誘答力不足。
-* **輸出內容**：僅列出有瑕疵題目。若全數符合，請依「例外報告」規則處理。
+### Step 2: 【題幹與邏輯品質審查】 (Logic & Quality)
+**[檢核重點]**
+* **邏輯封閉性**：單選題是否僅有唯一正解？選項間是否互斥？
+* **語意清晰度**：是否存在雙重否定、語意歧義或條件不足。
+* **誘答項檢核**：錯誤選項是否具備合理的誘答力。
+**[輸出格式]**
+| 題號 | 瑕疵類型 | 審查說明 |
+|---|---|---|
 
-### Step 3: 【素養導向深度審查】
+### Step 3: 【素養導向深度審查】 (Competency Review)
+請依據科目屬性辨識「真/假素養」：
 * **國語文**：(✅真素養：預測/推論/摘要；⚠️假素養：僅圈錯字/摘錄)
 * **數學**：(✅真素養：數學建模/真實數據；⚠️假素養：裝飾情境/數據不合理)
-* **自然/社會**：(✅真素養：探究歷程/多重觀點；⚠️假素養：純記憶/複製貼上)
-* **英語**：(✅真素養：真實語用/溝通；⚠️假素養：生硬對話/純文法)
-* **輸出內容**：列出具代表性的「✅ 真素養題」與「⚠️ 假素養題」並給予簡評。
+* **自然科學 / 生活課程**：(✅真素養：觀察/假設/實驗；⚠️假素養：純記憶/複製貼上)
+* **社會 / 生活課程**：(✅真素養：多重觀點/因果；⚠️假素養：碎片化記憶)
+* **英語文**：(✅真素養：真實語用；⚠️假素養：生硬對話)
 
-### Step 4: 【雙向細目表核算】
+**[輸出格式]**
+| 題號 | 素養類型 | 評析與建議 |
+|---|---|---|
+
+### Step 4: 【雙向細目表核算】 (Specification Table)
 請務必繪製 Markdown 表格：
-| 單元名稱 | 記憶 | 了解 | 應用 | 分析 | 評鑑 | 創造 |
-|---|---|---|---|---|---|---|
-| (填入) | (填題號) | ... | ... | ... | ... | ... |
-| **分數比重** | % | % | % | % | % | % |
-*(注意：分數比重加總須為 100%)*
+| 單元名稱 | 記憶 | 了解 | 應用 | 分析 | 評鑑 | 創造 | 總計 |
+|---|---|---|---|---|---|---|---|
+| (填入) | (填題號) | ... | ... | ... | ... | ... | ... |
+| **分數比重** | % | % | % | % | % | % | 100% |
+*(注意：請務必自我檢核最後一列、欄的總和是否為 100%)*
 
-### Step 5: 【難易度與負擔分析】
-* 難度分級：L1(易)、L2(中)、L3(難)。
-* 請預測成績分佈 (如：雙峰、常態、低分群偏多...)。
+### Step 5: 【難易度與學生成績預測】 (Difficulty & Prediction)
+* **難度分級**：L1 (易/基礎)、L2 (中/應用)、L3 (難/鑑別)。
+* **無效難度**：標註「計算過度繁瑣」但觀念簡單的題目。
+**[輸出格式]**
+| 分項 | 分析內容 |
+|---|---|
+| 難度分級 | ... |
+| 成績預測 | ... |
 
-### Step 6: 【總結與建議】
-* 針對紅色警示 (❌) 的題目提出具體修改建議。
-* 給予命題教師 3-5 點總體優化建議。
+### Step 6: 【總結與建議】 (Summary)
+* 綜合上述各項分析，給出最終的審查結論與修正建議。
+**[輸出格式]**
+| 建議項目 | 具體說明 |
+|---|---|
 
 ---
 {ref_block}
 
 ---
 【試卷原始內容】：
-{exam_text[:25000]}
+{exam_text[:30000]}
 """
             response = model.generate_content(prompt)
             ai_report = response.text
