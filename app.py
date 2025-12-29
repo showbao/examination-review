@@ -3,9 +3,10 @@ import google.generativeai as genai
 from io import BytesIO
 import re
 from docx import Document
-from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
+from docx.shared import Pt, RGBColor, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.oxml.ns import qn, nsdecls
+from docx.oxml import parse_xml
 
 # --- Google Drive 相關套件 ---
 from google.oauth2 import service_account
@@ -42,6 +43,21 @@ st.markdown("""
     section[data-testid="stSidebar"] .block-container {
         padding-top: 0rem !important;
         margin-top: 0rem !important;
+    }
+
+    /* 滑桿調整：強制將文字(嚴格)移到橫桿下方 */
+    div[data-testid="stSlider"] > div:nth-child(2) {
+        display: flex;
+        flex-direction: column-reverse; 
+    }
+    div[data-testid="stSlider"] [data-testid="stMarkdownContainer"] p {
+        margin-top: 8px !important;
+        margin-bottom: 0px !important;
+        font-weight: 600;
+        text-align: center;
+    }
+    div[data-testid="stSlider"] {
+        margin-top: -20px !important;
     }
 
     /* 標題樣式 */
@@ -157,15 +173,33 @@ def download_drive_file(file_id):
         return file_io
     except: return None
 
-# --- 2. Word 生成引擎 ---
+# --- 2. Word 生成引擎 (V12.2 排版增強版) ---
+
+def add_correction_block(doc):
+    """【特別要求 1】插入命題老師審題後修正說明區塊"""
+    doc.add_paragraph() # 空一行
+    p = doc.add_paragraph()
+    run = p.add_run("命題老師審題後修正說明：")
+    run.bold = True
+    run.font.size = Pt(14)
+    run.font.name = 'Microsoft JhengHei'
+    run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+    
+    # 預留 4 行空白行供手寫
+    for _ in range(4):
+        p_empty = doc.add_paragraph()
+        p_empty.paragraph_format.line_spacing = Pt(24) # 保持固定行高
+
 def parse_markdown_to_word(doc, text):
     lines = text.split('\n')
     table_buffer = []
+    has_previous_step = False # 用來判斷是否需要插入修正說明
     
     for line in lines:
         line = line.strip()
         if not line: continue
         
+        # 表格處理
         if line.startswith('|'):
             table_buffer.append(line)
             continue
@@ -174,19 +208,44 @@ def parse_markdown_to_word(doc, text):
                 create_word_table(doc, table_buffer)
                 table_buffer = [] 
 
+        # --- 標題處理 (依照字體大小要求) ---
+        
+        # 大標題 (Step 1, Step 2...) -> 14號, 粗體, 底線
         if line.startswith('### '):
-            doc.add_heading(line.replace('### ', ''), level=2)
+            # 如果前面已經有 Step 內容，先插入修正說明區塊 (除了第一個 Step)
+            if has_previous_step:
+                add_correction_block(doc)
+                doc.add_page_break() # 選用：每個大步驟換頁 (若不需要可註解掉)
+            
+            has_previous_step = True # 標記已有 Step
+            
+            clean_text = line.replace('### ', '')
+            p = doc.add_paragraph()
+            run = p.add_run(clean_text)
+            run.bold = True
+            run.underline = True # 【要求 2-2】底線
+            run.font.size = Pt(14) # 【要求 2-2】14號
+            # 段落間距微調
+            p.paragraph_format.space_before = Pt(12)
+            p.paragraph_format.space_after = Pt(12)
+
+        # 次標題 (## 通常不用於 Step 內，若有則視為大標)
         elif line.startswith('## '):
             doc.add_heading(line.replace('## ', ''), level=1)
+
+        # 小標題 (#### 1. 2. ...) -> 14號, 粗體
         elif line.startswith('#### '):
             p = doc.add_paragraph()
             run = p.add_run(line.replace('#### ', ''))
-            run.bold = True
-            run.font.size = Pt(12)
+            run.bold = True # 【要求 2-3】粗體
+            run.font.size = Pt(14) # 【要求 2-3】14號
+
+        # 一般內文 -> 14號, 固定行高 24pt
         else:
             p = doc.add_paragraph()
             clean_line = line
             
+            # 清單處理
             if line.startswith('* ') or line.startswith('- '):
                 clean_line = line[2:].strip()
                 if re.match(r'^(\*\*)?(問題|建議|現狀|分析|依據|結論|優點)', clean_line):
@@ -194,16 +253,25 @@ def parse_markdown_to_word(doc, text):
                 else:
                     p.style = 'List Bullet'
             
+            # 粗體解析
             parts = re.split(r'(\*\*.*?\*\*)', clean_line)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
                     run = p.add_run(part[2:-2])
                     run.bold = True
                 else:
-                    p.add_run(part)
+                    run = p.add_run(part)
+                
+                # 【要求 2-4】一般文字 14號
+                run.font.size = Pt(14)
 
+    # 處理最後遺留的表格
     if table_buffer:
         create_word_table(doc, table_buffer)
+        
+    # 【特別要求】最後一個 Step 結束後也要加上修正說明
+    if has_previous_step:
+        add_correction_block(doc)
 
 def create_word_table(doc, markdown_lines):
     try:
@@ -217,14 +285,23 @@ def create_word_table(doc, markdown_lines):
         table = doc.add_table(rows=1, cols=col_count)
         table.style = 'Table Grid'
         
+        # --- 標題列設定 ---
         hdr_cells = table.rows[0].cells
         for i, header_text in enumerate(headers):
             if i < len(hdr_cells):
                 hdr_cells[i].text = header_text
+                
+                # 【要求 4】標題列背景淺灰色 (D9D9D9)
+                shading_elm = parse_xml(r'<w:shd {} w:fill="D9D9D9"/>'.format(nsdecls('w')))
+                hdr_cells[i]._element.tcPr.append(shading_elm)
+                
                 for paragraph in hdr_cells[i].paragraphs:
+                    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE # 【要求 3-2】單行間距
                     for run in paragraph.runs:
                         run.bold = True
+                        run.font.size = Pt(14) # 表格內也 14 號
 
+        # --- 內容列設定 ---
         for line in rows[1:]:
             clean_line = line.strip().strip('|')
             cells_data = clean_line.split('|')
@@ -234,35 +311,75 @@ def create_word_table(doc, markdown_lines):
                 if i < col_count and i < len(row_cells):
                     final_text = cell_text.strip().replace('**', '')
                     row_cells[i].text = final_text
+                    # 【要求 3-2】表格內文字單行間距
+                    for paragraph in row_cells[i].paragraphs:
+                        paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                        for run in paragraph.runs:
+                            run.font.size = Pt(14)
                     
     except Exception as e:
         doc.add_paragraph(f"[表格轉換異常]")
 
 def generate_word_report_doc(text, exam_meta):
     doc = Document()
-    try:
-        doc.styles['Normal'].font.name = 'Microsoft JhengHei'
-        doc.styles['Normal']._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
-    except: pass
     
-    heading = doc.add_heading('北屯區建功國小 智慧審題報告', 0)
+    # --- 【要求 1】版面設定：邊界 1.27cm ---
+    sections = doc.sections
+    for section in sections:
+        section.top_margin = Cm(1.27)
+        section.bottom_margin = Cm(1.27)
+        section.left_margin = Cm(1.27)
+        section.right_margin = Cm(1.27)
+    
+    # --- 【要求 2 & 3】全域字體與行距設定 ---
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Microsoft JhengHei'
+    font.size = Pt(14) # 預設 14 號
+    style._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+    
+    # 設定固定行高 24點
+    paragraph_format = style.paragraph_format
+    paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    paragraph_format.line_spacing = Pt(24)
+    
+    # 主標題 (16號, 粗體)
+    heading = doc.add_heading('台中市北屯區建功國小 智慧審題報告', 0)
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for run in heading.runs:
+        run.font.size = Pt(16)
+        run.bold = True
+        run.font.name = 'Microsoft JhengHei'
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
+        run.font.color.rgb = RGBColor(0, 0, 0) # 黑色
     
+    # 試卷資訊區塊
     p_info = doc.add_paragraph()
     p_info.add_run(f"試卷資訊：{exam_meta['info_str']}\n").bold = True
     p_info.add_run(f"審查日期：{exam_meta['date_str']}\n")
     p_info.add_run(f"AI 模型：Gemini 3.0 Pro\n")
     p_info.add_run("-" * 30)
     
+    # 簽核欄位
     table = doc.add_table(rows=1, cols=2)
     table.autofit = True
     c1 = table.cell(0, 0)
     c1.text = "命題教師："
     c2 = table.cell(0, 1)
     c2.text = "審題教師："
+    # 調整簽核欄位格式
+    for row in table.rows:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                for run in p.runs:
+                    run.font.size = Pt(14)
     
     doc.add_paragraph("\n") 
+    
+    # 開始解析內容
     parse_markdown_to_word(doc, text)
+    
     bio = BytesIO()
     doc.save(bio)
     return bio
@@ -402,7 +519,7 @@ def main_app():
         )
         st.info(st.session_state['ai_report'])
 
-# --- 核心邏輯 (V12.1 嚴格Prompt修正版) ---
+# --- 核心邏輯 (V12.1 + V12.2 排版升級) ---
 def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
     with st.container():
         status = st.status("🔍 AI 教授正在審題中...", expanded=True)
@@ -421,7 +538,6 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
 
             # --- 核心判斷邏輯 ---
             if local_ref_files:
-                # 情境 A：使用者有上傳課本/習作
                 status.write(f"📘 使用者已上傳 {len(local_ref_files)} 份教材，以使用者檔案為準。")
                 for f in local_ref_files: 
                     ref_text += extract_pdf_text(f) + "\n"
@@ -431,7 +547,6 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                 scenario_msg = "請以【比對基準】為絕對標準，檢查試卷是否超綱。"
                 
             else:
-                # 情境 B：無上傳，啟動自動撈取機制 (只搜科目)
                 detected_grade = exam_meta.get('grade', '')
                 detected_subject = exam_meta.get('subject', '')
                 
@@ -442,12 +557,10 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                 else:
                     status.write(f"☁️ 啟動雲端比對：正在搜尋【{detected_subject}】領域課綱...")
                     
-                    # 搜尋 Google Drive (只搜科目)
                     drive_files = []
                     folder_id = st.secrets.get("google_drive_folder_id")
                     if folder_id:
                         all_files = get_drive_files(folder_id)
-                        # 邏輯修正 V12：只比對「科目」
                         matched_files = [f for f in all_files if detected_subject in f['name']]
                         
                         if matched_files:
@@ -459,7 +572,6 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                                     ref_source_list.append(f"雲端：{f['name']}")
                             
                             ref_block = f"【比對基準 (雲端資料庫)】：\n{ref_text[:60000]}\n"
-                            # 關鍵 Prompt 修正：命令 AI 在檔案中找特定年級
                             scenario_msg = f"請務必先閱讀【比對基準】檔案，並在其中搜尋對應【{detected_grade}】的「學習表現」與「學習內容」，以此為絕對標準檢查試卷。"
                         else:
                             status.warning(f"📭 資料庫中未找到 {detected_subject} 的檔案，改用通用標準。")
@@ -472,12 +584,8 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
             
             status.write("🧠 Gemini 3.0 Pro 正在進行深度比對...")
             
-            # --- V12.1 嚴格格式化 Prompt ---
             prompt = f"""
 # Role: 台灣國小教育評量暨素養導向命題專家
-
-# 角色定義
-你是一位精通「台灣教育部 108 課綱」與各版本教科書的資深教材審題專家。你的任務是審查使用者上傳的試卷，確保其符合教學進度、邏輯嚴謹，且具備真實的素養評量功能。
 
 ## 1. 任務目標
 針對上傳的試卷進行專業審題，產出一份符合 Markdown 格式的審查報告。
@@ -494,52 +602,26 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
    - ⛔ **若該大項無任何問題，請直接輸出單行文字：「✅ 本大項全數通過，無異常試題。」**
    - ⛔ **嚴禁**在無問題時繪製空表格或列出「通過」的題目。
 2. **格式要求**：
-   - 表格優先，檢核結果請務必使用 **Markdown Table** 呈現。
    - 必須使用 Markdown 語法。
    - 不要使用 Code Block (```) 包覆報告。
    - 標題層級清楚 (###)。
-   - 視覺標示：使用 ✅、⚠️、❌ 進行視覺引導。
 
 ## 4. 審查流程 (Analysis Workflow)
 請依序填寫以下報告內容：
 
-### Step 1: 【命題範圍與合規性檢核】 (Scope & Compliance)
-**[資料來源判定邏輯]**
-請依照以下**優先順序**決定審查基準：
-1.  **優先 (User Upload)**：若 `[使用者上傳教材]` 區塊有內容，以此為「唯一真理」進行比對。
-2.  **次要 (Database Fallback)**：若使用者未上傳，讀取 `[資料庫課綱基準]` 區塊。
-    * **解析與比對**：確認題目是否符合該年級/科目的「學習內容」與「學習表現」。
-
-**[檢核重點]**
-* **超綱判斷**：題目概念是否超出上述基準？
-* **課綱對應**：題目是否符合該領域的學習表現。
+### Step 1: 【命題範圍與合規性檢核】
+* **檢核邏輯**：比對題目是否超出【比對基準】或【考試範圍】。
 * **輸出內容**：僅列出違規題目。若全數符合，請依「例外報告」規則處理。
 
-### Step 2: 【題幹與邏輯品質審查】 (Logic & Quality)
-* **邏輯封閉性**：單選題是否僅有唯一正解？選項間是否互斥？
-* **語意清晰度**：是否存在雙重否定、語意歧義或條件不足。
-* **誘答項檢核**：錯誤選項是否具備合理的誘答力。
+### Step 2: 【題幹與邏輯品質審查】
+* **檢核邏輯**：檢查語意不清、雙重否定、邏輯謬誤、圖片模糊、選項誘答力不足。
 * **輸出內容**：僅列出有瑕疵題目。若全數符合，請依「例外報告」規則處理。
 
 ### Step 3: 【素養導向深度審查】
-請依據科目類別，執行「真偽素養」辨識（生活課程請依內容屬性併入自然或社會判斷）：
-
-* **國語文**：
-    * ✅ **真素養**：需運用預測、推論、摘要策略；含連續/非連續文本。
-    * ⚠️ **假素養**：僅圈錯字或直接摘錄句子，未涉及層次思考。
-* **數學**：
-    * ✅ **真素養**：具備「數學建模」過程；情境數據符合現實邏輯。
-    * ⚠️ **假素養**：情境與算式無關（裝飾性）；數據違背常理。
-* **自然科學** (含生活-觀察體驗)：
-    * ✅ **真素養**：評量觀察、假設、實驗設計或數據解釋。
-    * ⚠️ **假素養**：答案可直接從文中複製，無需先備知識。
-* **社會** (含生活-人際環境)：
-    * ✅ **真素養**：評量多重觀點、史料判讀或社會參與。
-    * ⚠️ **假素養**：僅考碎片化記憶，缺乏因果分析。
-* **英語文**：
-    * ✅ **真素養**：符合真實語用 (Pragmatics)，模擬真實溝通。
-    * ⚠️ **假素養**：對話生硬，僅為考文法規則而堆砌。
-
+* **國語文**：(✅真素養：預測/推論/摘要；⚠️假素養：僅圈錯字/摘錄)
+* **數學**：(✅真素養：數學建模/真實數據；⚠️假素養：裝飾情境/數據不合理)
+* **自然/社會**：(✅真素養：探究歷程/多重觀點；⚠️假素養：純記憶/複製貼上)
+* **英語**：(✅真素養：真實語用/溝通；⚠️假素養：生硬對話/純文法)
 * **輸出內容**：列出具代表性的「✅ 真素養題」與「⚠️ 假素養題」並給予簡評。
 
 ### Step 4: 【雙向細目表核算】
@@ -551,8 +633,8 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
 *(注意：分數比重加總須為 100%)*
 
 ### Step 5: 【難易度與負擔分析】
-* **無效難度檢查**：標註「計算過度繁瑣」但觀念簡單的題目。
-* **成績分佈預測**：依據題目難度 (L1易/L2中/L3難) 預測三種分數區間的學生表現。
+* 難度分級：L1(易)、L2(中)、L3(難)。
+* 請預測成績分佈 (如：雙峰、常態、低分群偏多...)。
 
 ### Step 6: 【總結與建議】
 * 針對紅色警示 (❌) 的題目提出具體修改建議。
