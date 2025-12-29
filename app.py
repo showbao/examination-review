@@ -173,10 +173,37 @@ def download_drive_file(file_id):
         return file_io
     except: return None
 
-# --- 2. Word 生成引擎 (V12.2 排版增強版) ---
+# --- 2. Word 生成引擎 (V13.0 排版/數學修正版) ---
+
+def clean_latex_math(text):
+    """
+    【修正 4】數學符號轉譯函數
+    將 LaTeX 數學語法轉換為 Word 可讀的文字
+    """
+    if not text: return text
+    
+    # 1. 處理分數 \frac{a}{b} -> a/b
+    # 使用 regex 非貪婪匹配
+    text = re.sub(r'\\frac\{(.+?)\}\{(.+?)\}', r'\1/\2', text)
+    
+    # 2. 處理乘號 \times -> ×
+    text = text.replace(r'\times', '×')
+    
+    # 3. 處理除號 \div -> ÷
+    text = text.replace(r'\div', '÷')
+    
+    # 4. 移除 LaTeX 數學定界符 $
+    text = text.replace('$', '')
+    
+    # 5. 處理其他常見符號 (可選)
+    text = text.replace(r'\approx', '≈')
+    text = text.replace(r'\le', '≤')
+    text = text.replace(r'\ge', '≥')
+    
+    return text
 
 def add_correction_block(doc):
-    """【特別要求 1】插入命題老師審題後修正說明區塊"""
+    """插入命題老師審題後修正說明區塊"""
     doc.add_paragraph() # 空一行
     p = doc.add_paragraph()
     run = p.add_run("命題老師審題後修正說明：")
@@ -193,7 +220,7 @@ def add_correction_block(doc):
 def parse_markdown_to_word(doc, text):
     lines = text.split('\n')
     table_buffer = []
-    has_previous_step = False # 用來判斷是否需要插入修正說明
+    has_previous_step = False 
     
     for line in lines:
         line = line.strip()
@@ -208,37 +235,43 @@ def parse_markdown_to_word(doc, text):
                 create_word_table(doc, table_buffer)
                 table_buffer = [] 
 
-        # --- 標題處理 (依照字體大小要求) ---
+        # --- 標題與內文處理 ---
         
         # 大標題 (Step 1, Step 2...) -> 14號, 粗體, 底線
         if line.startswith('### '):
-            # 如果前面已經有 Step 內容，先插入修正說明區塊 (除了第一個 Step)
+            # 如果前面已經有 Step 內容，插入修正說明區塊
             if has_previous_step:
                 add_correction_block(doc)
-                doc.add_page_break() # 選用：每個大步驟換頁 (若不需要可註解掉)
+                # 【修正 2】移除強制換頁 (直接接續)
+                # doc.add_page_break() 
             
-            has_previous_step = True # 標記已有 Step
+            has_previous_step = True 
             
             clean_text = line.replace('### ', '')
+            clean_text = clean_latex_math(clean_text) # 清理數學符號
+            
             p = doc.add_paragraph()
             run = p.add_run(clean_text)
             run.bold = True
-            run.underline = True # 【要求 2-2】底線
-            run.font.size = Pt(14) # 【要求 2-2】14號
-            # 段落間距微調
+            run.underline = True 
+            run.font.size = Pt(14)
             p.paragraph_format.space_before = Pt(12)
             p.paragraph_format.space_after = Pt(12)
 
-        # 次標題 (## 通常不用於 Step 內，若有則視為大標)
+        # 次標題
         elif line.startswith('## '):
-            doc.add_heading(line.replace('## ', ''), level=1)
+            clean_text = line.replace('## ', '')
+            clean_text = clean_latex_math(clean_text)
+            doc.add_heading(clean_text, level=1)
 
         # 小標題 (#### 1. 2. ...) -> 14號, 粗體
         elif line.startswith('#### '):
+            clean_text = line.replace('#### ', '')
+            clean_text = clean_latex_math(clean_text)
             p = doc.add_paragraph()
-            run = p.add_run(line.replace('#### ', ''))
-            run.bold = True # 【要求 2-3】粗體
-            run.font.size = Pt(14) # 【要求 2-3】14號
+            run = p.add_run(clean_text)
+            run.bold = True 
+            run.font.size = Pt(14) 
 
         # 一般內文 -> 14號, 固定行高 24pt
         else:
@@ -253,23 +286,26 @@ def parse_markdown_to_word(doc, text):
                 else:
                     p.style = 'List Bullet'
             
-            # 粗體解析
+            # 粗體解析 + 數學清理
             parts = re.split(r'(\*\*.*?\*\*)', clean_line)
             for part in parts:
+                cleaned_part = clean_latex_math(part) # 清理數學符號
                 if part.startswith('**') and part.endswith('**'):
-                    run = p.add_run(part[2:-2])
+                    # 移除 ** 後再清理
+                    content = part[2:-2]
+                    content = clean_latex_math(content)
+                    run = p.add_run(content)
                     run.bold = True
                 else:
-                    run = p.add_run(part)
+                    run = p.add_run(cleaned_part)
                 
-                # 【要求 2-4】一般文字 14號
                 run.font.size = Pt(14)
 
     # 處理最後遺留的表格
     if table_buffer:
         create_word_table(doc, table_buffer)
         
-    # 【特別要求】最後一個 Step 結束後也要加上修正說明
+    # 最後一個 Step 結束後也要加上修正說明
     if has_previous_step:
         add_correction_block(doc)
 
@@ -285,21 +321,48 @@ def create_word_table(doc, markdown_lines):
         table = doc.add_table(rows=1, cols=col_count)
         table.style = 'Table Grid'
         
+        # 【修正 3】表格欄寬控制
+        # 取消自動調整，才能手動設定寬度
+        table.autofit = False 
+        table.allow_autofit = False
+        
+        # 設定總寬度約 18.4cm (A4 21cm - 左右邊界 2.6cm)
+        # 這裡用權重分配比較保險
+        # 若是 3 欄 (題號, 類型, 說明)，給予說明欄最大空間
+        if col_count == 3:
+            for row in table.rows: # 預先建立行以便後續設定 (但 python-docx 通常是對 column 設定)
+                pass 
+                
+            # 設定 Column 寬度 (單位: Cm)
+            # 注意：需確保 table 物件已有對應 columns
+            try:
+                table.columns[0].width = Cm(2.5)  # 題號
+                table.columns[1].width = Cm(3.5)  # 違規類型
+                table.columns[2].width = Cm(12.0) # 說明 (加大)
+            except:
+                pass # 若欄位數不符則略過，維持預設
+        
+        elif col_count == 2:
+             try:
+                table.columns[0].width = Cm(4.0) 
+                table.columns[1].width = Cm(14.0) 
+             except: pass
+
         # --- 標題列設定 ---
         hdr_cells = table.rows[0].cells
         for i, header_text in enumerate(headers):
             if i < len(hdr_cells):
                 hdr_cells[i].text = header_text
                 
-                # 【要求 4】標題列背景淺灰色 (D9D9D9)
+                # 標題列背景淺灰色 (D9D9D9)
                 shading_elm = parse_xml(r'<w:shd {} w:fill="D9D9D9"/>'.format(nsdecls('w')))
                 hdr_cells[i]._element.tcPr.append(shading_elm)
                 
                 for paragraph in hdr_cells[i].paragraphs:
-                    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE # 【要求 3-2】單行間距
+                    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE 
                     for run in paragraph.runs:
                         run.bold = True
-                        run.font.size = Pt(14) # 表格內也 14 號
+                        run.font.size = Pt(14) 
 
         # --- 內容列設定 ---
         for line in rows[1:]:
@@ -310,8 +373,10 @@ def create_word_table(doc, markdown_lines):
             for i, cell_text in enumerate(cells_data):
                 if i < col_count and i < len(row_cells):
                     final_text = cell_text.strip().replace('**', '')
+                    final_text = clean_latex_math(final_text) # 【修正 4】表格內數學符號清理
                     row_cells[i].text = final_text
-                    # 【要求 3-2】表格內文字單行間距
+                    
+                    # 表格內文字單行間距
                     for paragraph in row_cells[i].paragraphs:
                         paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
                         for run in paragraph.runs:
@@ -323,7 +388,7 @@ def create_word_table(doc, markdown_lines):
 def generate_word_report_doc(text, exam_meta):
     doc = Document()
     
-    # --- 【要求 1】版面設定：邊界 1.27cm ---
+    # --- 版面設定：邊界 1.27cm ---
     sections = doc.sections
     for section in sections:
         section.top_margin = Cm(1.27)
@@ -331,11 +396,11 @@ def generate_word_report_doc(text, exam_meta):
         section.left_margin = Cm(1.27)
         section.right_margin = Cm(1.27)
     
-    # --- 【要求 2 & 3】全域字體與行距設定 ---
+    # --- 全域字體與行距設定 ---
     style = doc.styles['Normal']
     font = style.font
     font.name = 'Microsoft JhengHei'
-    font.size = Pt(14) # 預設 14 號
+    font.size = Pt(14) 
     style._element.rPr.rFonts.set(qn('w:eastAsia'), 'Microsoft JhengHei')
     
     # 設定固定行高 24點
@@ -343,8 +408,8 @@ def generate_word_report_doc(text, exam_meta):
     paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
     paragraph_format.line_spacing = Pt(24)
     
-    # 主標題 (16號, 粗體)
-    heading = doc.add_heading('台中市北屯區建功國小 智慧審題報告', 0)
+    # 【修正 1】主標題修正
+    heading = doc.add_heading('臺中市北屯區建功國小AI審題報告', 0)
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for run in heading.runs:
         run.font.size = Pt(16)
@@ -519,7 +584,7 @@ def main_app():
         )
         st.info(st.session_state['ai_report'])
 
-# --- 核心邏輯 (V12.1 + V12.2 排版升級) ---
+# --- 核心邏輯 (V12.1 嚴格Prompt修正版) ---
 def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
     with st.container():
         status = st.status("🔍 AI 教授正在審題中...", expanded=True)
@@ -538,6 +603,7 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
 
             # --- 核心判斷邏輯 ---
             if local_ref_files:
+                # 情境 A：使用者有上傳課本/習作
                 status.write(f"📘 使用者已上傳 {len(local_ref_files)} 份教材，以使用者檔案為準。")
                 for f in local_ref_files: 
                     ref_text += extract_pdf_text(f) + "\n"
@@ -547,6 +613,7 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                 scenario_msg = "請以【比對基準】為絕對標準，檢查試卷是否超綱。"
                 
             else:
+                # 情境 B：無上傳，啟動自動撈取機制 (只搜科目)
                 detected_grade = exam_meta.get('grade', '')
                 detected_subject = exam_meta.get('subject', '')
                 
@@ -557,10 +624,12 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                 else:
                     status.write(f"☁️ 啟動雲端比對：正在搜尋【{detected_subject}】領域課綱...")
                     
+                    # 搜尋 Google Drive (只搜科目)
                     drive_files = []
                     folder_id = st.secrets.get("google_drive_folder_id")
                     if folder_id:
                         all_files = get_drive_files(folder_id)
+                        # 邏輯修正 V12：只比對「科目」
                         matched_files = [f for f in all_files if detected_subject in f['name']]
                         
                         if matched_files:
@@ -572,6 +641,7 @@ def process_review_logic(exam_file, local_ref_files, strictness, exam_scope):
                                     ref_source_list.append(f"雲端：{f['name']}")
                             
                             ref_block = f"【比對基準 (雲端資料庫)】：\n{ref_text[:60000]}\n"
+                            # 關鍵 Prompt 修正：命令 AI 在檔案中找特定年級
                             scenario_msg = f"請務必先閱讀【比對基準】檔案，並在其中搜尋對應【{detected_grade}】的「學習表現」與「學習內容」，以此為絕對標準檢查試卷。"
                         else:
                             status.warning(f"📭 資料庫中未找到 {detected_subject} 的檔案，改用通用標準。")
