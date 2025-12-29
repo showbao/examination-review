@@ -22,7 +22,7 @@ except Exception as e:
 
 # --- 2. 設定 Gemini 模型 ---
 # 使用目前穩定的 Pro 版本，若未來有新版，修改 model_name 即可
-MODEL_NAME = "gemini-1.5-pro" 
+MODEL_NAME = "gemini-2.5-pro" 
 
 try:
     genai.configure(api_key=api_key)
