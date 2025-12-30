@@ -288,10 +288,10 @@ def check_password():
         with st.expander("⚠️ 使用前請務必詳閱免責聲明 (點擊展開)", expanded=True):
             st.markdown("""
             **使用前請詳閱以下說明：**
-            本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。
-            1. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。
-            2. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
-            3. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用，僅限校內使用。
+            1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。
+            2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。
+            3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
+            4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用，僅限校內使用。
             """)
         password = st.text_input("請輸入學校專用通行碼", type="password")
         if st.button("我同意聲明並登入"):
@@ -327,7 +327,7 @@ with st.container():
     with col_dash_1:
         st.markdown("""
         <div class="dashboard-card">
-            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷以啟動 AI 雙階段識別<br>
+            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷，並於檔名標註「科目領域」以啟動 AI 雙階段識別<br>
             <small>啟用檔名路由：檔名含「數/理/化/生」➔ Pro | 其餘 ➔ Flash</small>
         </div>
         """, unsafe_allow_html=True)
@@ -342,7 +342,7 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("1️⃣ 上傳試卷 (必選)")
     # UI 修正：提示檔名標註
-    exam_file = st.file_uploader("請拖曳檔案至此 (檔名請標註「科目」，以啟動 AI 雙階段識別)", type=["pdf", "jpg", "png"], key="exam_uploader")
+    exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
 with col2:
     st.subheader("2️⃣ 上傳課本、習作 (可選)")
     context_files = st.file_uploader("請拖曳檔案至此", type=["pdf"], accept_multiple_files=True, key="context_uploader")
@@ -486,10 +486,13 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 * **情況 A (若有提供單元名稱)：** 製作標準雙向細目表。
     * 表頭：知識、理解、應用、分析、綜合、評鑑 + 總計
     * 側欄：單元名稱 + 總計
+    * 請將對應題號填入表格內。
     * **統計：** 計算百分比重，**務必確認總計為 100%**。
 
 * **情況 B (若無提供單元名稱)：** 製作向度分析表。
-    * 表格欄位：知識向度 (知識/理解/應用/分析/綜合/評鑑) | 對應題號 | 題數佔比
+    * 表格欄位：知識向度 | 對應題號 | 題數佔比
+    * 側欄：(知識/理解/應用/分析/綜合/評鑑) + 總計
+    * 請將對應題號填入表格內。
     * **統計：** 務必計算百分比重，總和需為 100%。
 
 ### Step 5: 難易度與負擔分析
