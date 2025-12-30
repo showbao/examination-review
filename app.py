@@ -11,25 +11,44 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 # ==========================================
-# 0. 視覺風格設定 (莫蘭迪色系 & CSS)
+# 0. 視覺風格設定 (莫蘭迪色系 & CSS - 放大版)
 # ==========================================
 st.set_page_config(page_title="北屯區建功國小AI審題系統", page_icon="📝", layout="wide")
 
 morandi_css = """
 <style>
+    /* 全站字體放大 */
+    html, body, [class*="css"] {
+        font-size: 18px; 
+    }
+    
     .stApp { background-color: #F5F7F7; }
-    h1, h2, h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; }
+    
+    /* 標題放大 */
+    h1 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.5rem !important; }
+    h2 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.0rem !important; }
+    h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 1.5rem !important; }
+    
+    /* 按鈕樣式放大 */
     div.stButton > button {
-        background-color: #8DA399; color: white; border-radius: 8px; border: none; padding: 10px 24px; font-weight: bold;
+        background-color: #8DA399; color: white; border-radius: 8px; border: none; 
+        padding: 12px 28px; /* 增加內距 */
+        font-weight: bold;
+        font-size: 1.1rem; /* 放大按鈕文字 */
     }
     div.stButton > button:hover { background-color: #6E8B7F; color: white; border: 1px solid #6E8B7F; }
+    
+    /* 資訊看板樣式放大 */
     .dashboard-card {
-        background-color: #E8ECEC; padding: 15px; border-radius: 10px; border-left: 5px solid #8DA399; margin-bottom: 20px; color: #4A4A4A;
+        background-color: #E8ECEC; padding: 20px; border-radius: 10px; border-left: 6px solid #8DA399; 
+        margin-bottom: 25px; color: #4A4A4A;
+        font-size: 1.1rem; /* 放大看板文字 */
     }
+    
     .footer {
-        position: fixed; left: 0; bottom: 0; width: 100%; background-color: #F5F7F7; color: #888; text-align: center; padding: 10px; font-size: 12px; border-top: 1px solid #ddd; z-index: 999;
+        position: fixed; left: 0; bottom: 0; width: 100%; background-color: #F5F7F7; color: #888; text-align: center; padding: 15px; font-size: 14px; border-top: 1px solid #ddd; z-index: 999;
     }
-    .footer-spacer { height: 50px; }
+    .footer-spacer { height: 60px; }
 </style>
 """
 st.markdown(morandi_css, unsafe_allow_html=True)
@@ -67,7 +86,7 @@ def upload_to_gemini(file_obj):
     os.remove(tmp_path)
     return file_ref
 
-# --- Word 生成核心邏輯 (v3.1) ---
+# --- Word 生成核心邏輯 (v3.2 修正版) ---
 def set_font_style(run, size=12, bold=False, color=None):
     """設定字體為標楷體 + Times New Roman"""
     run.font.name = 'Times New Roman'
@@ -78,10 +97,16 @@ def set_font_style(run, size=12, bold=False, color=None):
         run.font.color.rgb = color
 
 def clean_markdown_symbol(text):
-    """移除 Markdown 符號如 ** 和 #"""
+    """移除 Markdown 符號與燈號圖示，只保留純文字"""
+    # 移除 Markdown 強調
     text = text.replace("**", "")
     text = text.replace("##", "")
     text = text.lstrip("#")
+    
+    # 移除燈號圖示 (Word 不顯示圖示，改用顏色區分)
+    for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡"]:
+        text = text.replace(icon, "")
+        
     return text.strip()
 
 def create_word_report(analysis_text, metadata):
@@ -147,23 +172,28 @@ def create_word_report(analysis_text, metadata):
             run = p.add_run(clean_text)
             set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153)) # 標題藍色
         
-        # 處理分類小標題 (## 🟢 / ## 🔴) -> 實現 Word 分組視覺化
+        # 處理分類小標題 (## 🟢 / ## 🔴)
         elif line.startswith("##"):
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
+            # 在清理前先判斷顏色
+            is_green = "🟢" in line or "優良" in line or "真素養" in line
+            is_red = "🔴" in line or "警告" in line or "假素養" in line
+            is_yellow = "🟡" in line or "提醒" in line
+
             clean_text = clean_markdown_symbol(line)
             p = doc.add_paragraph()
             run = p.add_run(clean_text)
             
             # 依據燈號給顏色
-            if "🟢" in line or "優良" in line or "真素養" in line:
+            if is_green:
                 set_font_style(run, size=13, bold=True, color=RGBColor(0, 100, 0)) # 深綠
-            elif "🔴" in line or "警告" in line or "假素養" in line:
+            elif is_red:
                 set_font_style(run, size=13, bold=True, color=RGBColor(200, 0, 0)) # 深紅
-            elif "🟡" in line or "提醒" in line:
+            elif is_yellow:
                 set_font_style(run, size=13, bold=True, color=RGBColor(204, 153, 0)) # 深黃
             else:
                 set_font_style(run, size=13, bold=True)
@@ -183,6 +213,11 @@ def create_word_report(analysis_text, metadata):
                 table_data = []
             
             clean_text = clean_markdown_symbol(line.lstrip("*- "))
+            
+            # 修正：檢查是否為空字串，防止出現空白列點
+            if not clean_text:
+                continue
+
             p = doc.add_paragraph(style='List Bullet')
             run = p.add_run(clean_text)
             set_font_style(run, size=12)
@@ -194,13 +229,15 @@ def create_word_report(analysis_text, metadata):
                 table_mode = False
                 table_data = []
             clean_text = clean_markdown_symbol(line)
+            if not clean_text: continue # 防止空行變成空段落
+            
             p = doc.add_paragraph(clean_text)
             set_font_style(p.runs[0] if p.runs else p.add_run(clean_text), size=12)
 
     if table_mode and table_data:
         _render_word_table(doc, table_data)
 
-    # 教師回饋區 (不分頁，緊接在後)
+    # 教師回饋區
     doc.add_paragraph() # 空一行
     p = doc.add_paragraph()
     run = p.add_run("命題教師修改及說明")
@@ -445,8 +482,15 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 
 ### Step 4: 雙向細目表核算
 **指定單元範圍：** {units_str}
-* 製作標準雙向細目表 (表頭：知識/理解/應用/分析/綜合/評鑑 + 總計)。
-* **統計：** 務必計算百分比重，總和需為 100%。
+
+* **情況 A (若有提供單元名稱)：** 製作標準雙向細目表。
+    * 表頭：知識、理解、應用、分析、綜合、評鑑 + 總計
+    * 側欄：單元名稱 + 總計
+    * **統計：** 計算百分比重，**務必確認總計為 100%**。
+
+* **情況 B (若無提供單元名稱)：** 製作向度分析表。
+    * 表格欄位：知識向度 (知識/理解/應用/分析/綜合/評鑑) | 對應題號 | 題數佔比
+    * **統計：** 務必計算百分比重，總和需為 100%。
 
 ### Step 5: 難易度與負擔分析
 * 以表格呈現：難易度分佈、預估閱讀量、作答步驟數。
