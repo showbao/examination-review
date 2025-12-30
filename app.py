@@ -2,30 +2,22 @@ import streamlit as st
 import google.generativeai as genai
 import os
 import time
-from docx import Document # 預留給 Word 生成用
+from docx import Document  # 預留給 Word 生成模組
 
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
 # ==========================================
-st.set_page_config(page_title="智慧試卷審題系統", page_icon="📝", layout="wide")
+st.set_page_config(page_title="北屯區建功國小AI審題系統", page_icon="📝", layout="wide")
 
-# 莫蘭迪色系定義：
-# 主色 (Sage Green): #8DA399 (按鈕、強調)
-# 副色 (Slate Blue): #5B7C99 (標題)
+# 定義莫蘭迪色系
+# 主色 (Sage Green): #8DA399
+# 深色 (Slate Blue): #5B7C99
 # 背景 (Mist Grey): #F5F7F7
-# 文字 (Charcoal): #4A4A4A
-
 morandi_css = """
 <style>
-    /* 全站背景 */
-    .stApp {
-        background-color: #F5F7F7;
-    }
-    /* 主標題 */
-    h1, h2, h3 {
-        color: #5B7C99 !important;
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }
+    .stApp { background-color: #F5F7F7; }
+    h1, h2, h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; }
+    
     /* 按鈕樣式 */
     div.stButton > button {
         background-color: #8DA399;
@@ -33,47 +25,68 @@ morandi_css = """
         border-radius: 8px;
         border: none;
         padding: 10px 24px;
-        transition: all 0.3s;
+        font-weight: bold;
     }
     div.stButton > button:hover {
         background-color: #6E8B7F;
         color: white;
         border: 1px solid #6E8B7F;
     }
-    /* 側邊欄背景 */
-    section[data-testid="stSidebar"] {
+    
+    /* 資訊看板樣式 */
+    .dashboard-card {
         background-color: #E8ECEC;
-    }
-    /* 資訊卡片背景 */
-    div.stAlert {
-        background-color: #E3E9E9;
-        border: 1px solid #8DA399;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #8DA399;
+        margin-bottom: 20px;
         color: #4A4A4A;
     }
+    
+    /* 頁尾樣式 */
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #F5F7F7;
+        color: #888;
+        text-align: center;
+        padding: 10px;
+        font-size: 12px;
+        border-top: 1px solid #ddd;
+        z-index: 999;
+    }
+    .footer-spacer { height: 50px; }
 </style>
 """
 st.markdown(morandi_css, unsafe_allow_html=True)
 
 # ==========================================
-# 1. 登入與免責聲明 (Login & Disclaimer)
+# 1. 登入與免責聲明
 # ==========================================
+
+def render_footer():
+    st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="footer">Designed for 臺中市北屯區建功國小 | Powered by Gemini 3.0</div>', 
+        unsafe_allow_html=True
+    )
 
 def check_password():
     """帶有免責聲明的登入系統"""
     if st.session_state.get("password_correct", False):
         return True
 
-    # 登入頁面佈局
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("## 🔒 智慧試卷審題系統登入")
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("## 🔒 北屯區建功國小 AI 審題系統")
         
-        # 免責聲明區塊
         with st.expander("⚠️ 使用前請務必詳閱免責聲明 (點擊展開)", expanded=True):
             st.markdown("""
             **使用前請詳閱以下說明：**
             本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。
-            
             1. **人工查核機制**：AI 生成內容可能存在誤差或不可預期的錯誤（幻覺），最終試卷定稿請務必回歸教師專業判斷。
             2. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
             3. **資料留存規範**：本系統不永久留存檔案，上傳之文件將於系統重啟或對話結束後自動銷毀。
@@ -88,17 +101,23 @@ def check_password():
                 st.rerun()
             else:
                 st.error("❌ 密碼錯誤")
+    
+    render_footer()
     return False
 
 if not check_password():
     st.stop()
 
 # ==========================================
-# 2. 核心邏輯：模型管理與科目偵測
+# 2. 核心邏輯：模型管理 (嚴格白名單)
 # ==========================================
 
 def get_smart_model_list(api_key):
-    """智慧篩選模型：Gemini 3.0 Pro > 2.0 Thinking > 2.5 Pro > Flash"""
+    """
+    智慧篩選模型：
+    1. 嚴格過濾：剔除 Nano, Banana, Legacy, Experimental
+    2. 智慧排序：Gemini 3.0 > 2.0 > Pro > Flash
+    """
     genai.configure(api_key=api_key)
     models = []
     try:
@@ -106,15 +125,21 @@ def get_smart_model_list(api_key):
         for m in all_models:
             if 'generateContent' in m.supported_generation_methods:
                 name = m.name.lower()
-                # 排除不適用模型
-                if any(x in name for x in ["nano", "bison", "unicorn", "aqa", "vision"]):
+                
+                # [嚴格白名單檢查]
+                # 必須是 gemini 系列，且包含 pro, flash 或 thinking
+                if "gemini" not in name: continue
+                if not any(t in name for t in ["pro", "flash", "thinking"]): continue
+                
+                # [黑名單檢查] 雙重保險，絕對踢除手機版與舊版
+                if any(x in name for x in ["nano", "banana", "pixel", "vision-legacy", "001"]):
                     continue
                 
                 # 權重計分
                 score = 0
                 if "gemini-3" in name: score += 10000
                 elif "gemini-2.5" in name: score += 8000
-                elif "gemini-2" in name: score += 6000
+                elif "gemini-2.0" in name: score += 6000
                 elif "gemini-1.5" in name: score += 2000
                 
                 if "thinking" in name: score += 1500
@@ -127,13 +152,6 @@ def get_smart_model_list(api_key):
         return [(m[0], m[1]) for m in models[:5]] # 只回傳前5名
     except:
         return [("Gemini 1.5 Pro (Fallback)", "models/gemini-1.5-pro")]
-
-def detect_subject_and_route(file_content, api_key):
-    """(模擬) 快速偵測科目並回傳建議模型與科目名稱"""
-    # 實務上這裡會呼叫 Gemini Flash 讀取前 1000 字
-    # 這裡為了演示，我們先回傳一個預設值，實際運作時會由主流程的 AI 判斷
-    # 為了節省額度，我們把這個偵測邏輯合併到 System Prompt 裡去做
-    return "自動偵測中..."
 
 def upload_to_gemini(file_obj):
     """上傳檔案到 Gemini"""
@@ -151,68 +169,75 @@ def upload_to_gemini(file_obj):
     return file_ref
 
 # ==========================================
-# 3. 介面與側邊欄設定
+# 3. 主畫面設計 (Main Dashboard)
 # ==========================================
-st.title("📝 智慧試卷審題系統")
 
-# --- 側邊欄 ---
-with st.sidebar:
-    st.header("⚙️ 參數設定")
-    
-    # API Key 檢查
-    if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        model_options = get_smart_model_list(api_key)
-    else:
-        st.error("請設定 Secrets: GEMINI_API_KEY")
-        st.stop()
+# 初始化 Session State (用於結果保留)
+if "analysis_result" not in st.session_state:
+    st.session_state.analysis_result = None
 
-    # 1. 模型選擇 (自動 + 手動)
-    st.subheader("1. AI 模型核心")
-    model_mode = st.radio("模式", ["🤖 依科目自動切換", "🖐️ 手動指定"], horizontal=True)
-    
-    selected_model_id = None
-    if model_mode == "🖐️ 手動指定":
-        selected_model = st.selectbox("選擇模型", model_options, index=0)
-        selected_model_id = selected_model[1]
-    else:
-        st.info("系統將依試卷內容自動路由：\n\n📐 數學/理科 → 3.0 Pro\n📚 文史/社會 → 3.0 Flash")
-        # 這裡的自動切換邏輯會在後端 prompt 執行時動態決定，預設先拿最好的 Pro
-        selected_model_id = model_options[0][1] 
+st.title("北屯區建功國小AI審題系統")
 
-    st.markdown("---")
-    
-    # 2. 雙向細目表設定 (動態單元)
-    st.subheader("2. 雙向細目表設定")
-    st.caption("請輸入本試卷包含的單元，以利 AI 製作細目表。")
-    
-    unit_count = st.number_input("本試卷包含幾個單元？", min_value=1, max_value=10, value=3)
-    unit_list = []
-    for i in range(unit_count):
-        unit_name = st.text_input(f"單元 {i+1} 名稱", placeholder=f"例如：第 {i+1} 單元 整數運算", key=f"unit_{i}")
-        if unit_name:
-            unit_list.append(unit_name)
-            
-    st.markdown("---")
-    st.caption("Designed for 建功國小 | Powered by Gemini 3.0")
+# --- A. 智慧控制儀表板 (取代側邊欄) ---
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+    model_options = get_smart_model_list(api_key)
+else:
+    st.error("請設定 Secrets: GEMINI_API_KEY")
+    st.stop()
 
-# --- 主畫面：檔案上傳 ---
+# 儀表板 UI
+with st.container():
+    col_dash_1, col_dash_2 = st.columns([3, 1])
+    with col_dash_1:
+        st.markdown("""
+        <div class="dashboard-card">
+            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷以啟動 AI 自動識別<br>
+            <small>預設啟用：自動科目路由 (數學科優先掛載 Gemini 3.0 Pro)</small>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_dash_2:
+        with st.expander("⚙️ 手動模型設定"):
+            model_mode = st.radio("模式", ["自動路由", "手動指定"], label_visibility="collapsed")
+            if model_mode == "手動指定":
+                selected_model_tuple = st.selectbox("核心", model_options, label_visibility="collapsed")
+                selected_model_id = selected_model_tuple[1]
+            else:
+                selected_model_id = model_options[0][1] # 自動模式預設拿最高分的
+
+# --- B. 雙欄上傳區 (左：試卷 / 右：教材) ---
 col1, col2 = st.columns(2)
+
 with col1:
-    st.markdown("### 1️⃣ 上傳教材/課本 (可選)")
-    st.caption("若未上傳，Step 1 與 Step 4 將自動切換為簡易模式。")
-    context_files = st.file_uploader("支援 PDF", type=["pdf"], accept_multiple_files=True)
+    st.subheader("1️⃣ 上傳試卷 (必選)")
+    st.caption("支援 PDF/圖片，AI 將自動判讀科目與數學公式")
+    exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
 
 with col2:
-    st.markdown("### 2️⃣ 上傳試卷 (必選)")
-    st.caption("支援 PDF/圖片 (包含數學公式、圖表)")
-    exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"])
+    st.subheader("2️⃣ 上傳課本、習作 (可選)")
+    st.caption("若未上傳，系統將跳過「命題範圍」檢核")
+    context_files = st.file_uploader("請拖曳檔案至此", type=["pdf"], accept_multiple_files=True, key="context_uploader")
+
+# --- C. 單元設定區 (移至主畫面) ---
+st.markdown("---")
+st.subheader("📝 雙向細目表設定")
+col_unit_1, col_unit_2 = st.columns([1, 4])
+with col_unit_1:
+    unit_count = st.number_input("單元數量", min_value=1, max_value=10, value=3)
+with col_unit_2:
+    unit_list = []
+    # 動態產生輸入框 (橫向排列)
+    cols = st.columns(unit_count)
+    for i in range(unit_count):
+        with cols[i]:
+            u_name = st.text_input(f"單元 {i+1}", placeholder=f"單元名稱", key=f"unit_{i}")
+            if u_name:
+                unit_list.append(u_name)
 
 # ==========================================
-# 4. 審查邏輯與 Prompt 建構
+# 4. 審查邏輯與 Prompt (含素養標準)
 # ==========================================
 
-# 預定義的素養標準 (Step 3 用)
 LITERACY_STANDARDS = """
 【核心通用法則：剝皮測試】
 檢核標準：試著將題目中的「情境敘述」（故事、圖片、前言）移除。
@@ -227,11 +252,13 @@ LITERACY_STANDARDS = """
 6. 生活課程：(真)感官體驗、情境應變、實作導向；(假)規訓教條、知識超載、文字負擔。
 """
 
-if st.button("🚀 開始全方位審查", type="primary"):
+st.markdown("---")
+
+# 當按下開始按鈕，執行分析並存入 session_state
+if st.button("🚀 開始全方位審查", type="primary", use_container_width=True):
     if not exam_file:
         st.warning("❌ 請務必上傳一份「試卷」！")
     else:
-        # 進度條與狀態區
         status_box = st.empty()
         progress_bar = st.progress(0)
         
@@ -252,60 +279,56 @@ if st.button("🚀 開始全方位審查", type="primary"):
             
             progress_bar.progress(30)
             
-            # 2. 建構超級 Prompt (Chain of Thought)
-            status_box.info("🧠 正在建構審查指令 (Auto-Routing)...")
+            # 2. 建構超級 Prompt
+            status_box.info("🧠 AI 正在識別科目並建構指令...")
             
-            # 判斷是否提供單元列表
             units_str = ", ".join(unit_list) if unit_list else "未提供 (請自行判斷)"
             
             base_prompt = f"""
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。請依照以下步驟審查這份【待審試卷】。
 
+**【重要輸出規範】：**
+1. **嚴禁**在標題後方加上「(模組A)」、「(模組B)」等內部代號。
+2. **燈號置前**：所有的燈號（🟢、🟡、🔴、⚠️）或圖示，必須放在每一行的**最前面**。例如：「🔴 第 5 題：...」。
+
 **前置作業：**
-1. 請先判斷這份試卷的科目（國語/英語/數學/社會/自然/生活）。
-2. 若是數學/自然科，請啟動「深度推理模式」，仔細檢查公式與圖表。
+1. 請先判斷這份試卷的科目。若是數學/自然科，請啟動深度推理模式。
 
 請嚴格依照以下 6 大步驟輸出 Markdown 報告：
 
 ---
-### Step 1: 命題範圍與合規性 (模組 A)
-* **狀態：** (若有上傳教材，請比對並標示 🟢通過 / 🔴超綱；**若無上傳教材，請直接輸出警語：「⚠️ 未檢查命題範圍：未上傳教材，故未檢查命題範圍，請老師務必自行審示題目的適切性。」**)
+### Step 1: 命題範圍與合規性
+* 若有上傳教材：請比對並標示 🟢通過 / 🔴超綱。
+* **若無上傳教材，請直接輸出警語：「⚠️ 未檢查命題範圍：未上傳教材，故未檢查命題範圍，請老師務必自行審示題目的適切性。」** (不需輸出其他內容)
 
-### Step 2: 題幹與邏輯品質 (模組 A)
-* 檢查語意歧義、邏輯謬誤、選項互斥性。
-* 輸出格式：🟢/🟡/🔴 燈號 + 簡短說明。
+### Step 2: 題幹與邏輯品質
+* 檢查語意歧義、邏輯謬誤。
+* 輸出格式範例：
+    * 🟡 **第 3 題**：題幹語意不清，建議修改...
 
-### Step 3: 素養導向深度審查 (模組 A)
+### Step 3: 素養導向深度審查
 **請依據下列標準執行「剝皮測試」，並挑選 5-10 題具代表性題目進行分析：**
 {LITERACY_STANDARDS}
 
-* **輸出格式：**
-    * **第 X 題 [🟢真素養 / 🔴假素養]**
-    * **判斷依據：** (說明剝皮測試結果)
-    * **修改建議：** (針對假素養提出建議)
+* 輸出格式範例：
+    * 🔴 **第 X 題 [假素養]**：(原因說明...)
+    * 🟢 **第 Y 題 [真素養]**：(原因說明...)
 
-### Step 4: 雙向細目表核算 (模組 B)
+### Step 4: 雙向細目表核算
 **指定單元範圍：** {units_str}
 
-* **情況 A (若有提供單元名稱 且 有上傳教材)：** 請製作標準雙向細目表。
-    * 表頭：記憶/理解/應用/分析/評鑑/創造 + 總計
-    * 側欄：單元名稱 (請使用我提供的單元清單) + 總計
-    * 內容：填入題號。
-    * 統計：計算各單元與各向度的百分比重，並檢核總和是否為 100%。
+* **情況 A (若有提供單元名稱 且 有上傳教材)：** 請製作標準雙向細目表 (含單元名稱 vs 知識向度)。
+* **情況 B (若缺一)：** 請製作簡易向度分析表 (知識向度 | 對應題號 | 題數佔比)。
 
-* **情況 B (若缺一)：** 請製作簡易向度分析表。
-    * 欄位：知識向度 | 對應題號 | 題數佔比
+### Step 5: 難易度與負擔分析
+* 請以表格呈現：難易度分佈、預估閱讀量、作答步驟數。
 
-### Step 5: 難易度與負擔分析 (模組 B)
-* 請以表格呈現：難易度分佈(易/中/難)、預估閱讀量、作答步驟數。
-
-### Step 6: 總結與建議 (模組 C)
-* **👍 值得讚許之處：** (條列優點)
-* **💡 具體修改建議：** (條列具體建議，不需給評分)
+### Step 6: 總結與建議
+* 👍 **值得讚許之處：** (條列)
+* 💡 **具體修改建議：** (條列)
 
 ---
 """
-            # 組合 Prompt
             if has_context:
                 prompt_parts.append("【參考教材/課本】：")
                 prompt_parts.extend(context_refs)
@@ -323,31 +346,35 @@ if st.button("🚀 開始全方位審查", type="primary"):
             progress_bar.progress(100)
             status_box.success("✅ 分析完成！")
             
-            # 4. 顯示結果
-            st.markdown("## 📊 審查報告")
-            st.markdown(response.text)
+            # 儲存結果到 Session State
+            st.session_state.analysis_result = response.text
             
-            # ==========================================
-            # 5. 生成 Word 報告 (預留區)
-            # ==========================================
-            def generate_word_report(text_content):
-                # TODO: 未來在此處實作 Markdown -> Word 表格的轉換邏輯
-                # 1. 解析 text_content 抓出 Step 4 的表格 Markdown
-                # 2. 使用 python-docx 建立 Table
-                # 3. 填入資料
-                # 4. 回傳 binary data
-                return text_content.encode("utf-8") # 暫時回傳純文字
-                
-            # 下載按鈕
-            word_data = generate_word_report(response.text)
-            st.download_button(
-                label="📥 下載 Word 報告 (.docx)",
-                data=word_data,
-                file_name="智慧審題報告.docx", # 未來改為 .docx
-                mime="text/plain" # 未來改為 application/vnd.openxmlformats...
-            )
-
         except Exception as e:
             st.error(f"發生錯誤: {e}")
             if "429" in str(e):
-                st.warning("💡 提示：目前 AI 忙線中，請稍後再試，或於側邊欄切換其他模型。")
+                st.warning("💡 提示：目前 AI 忙線中，請稍後再試。")
+
+# ==========================================
+# 5. 顯示結果與下載區 (Result Persistence)
+# ==========================================
+
+if st.session_state.analysis_result:
+    st.markdown("## 📊 審查報告")
+    st.markdown(st.session_state.analysis_result)
+    
+    # Word 生成預留函式
+    def generate_word_report(text_content):
+        # 這裡未來會實作 Markdown 轉 Word 邏輯
+        return text_content.encode("utf-8")
+        
+    word_data = generate_word_report(st.session_state.analysis_result)
+    
+    st.download_button(
+        label="📥 下載 Word 報告 (.docx)",
+        data=word_data,
+        file_name="建功國小_AI審題報告.docx",
+        mime="text/plain",
+        key="download_btn" # 給予 key 避免重複刷新導致問題
+    )
+
+render_footer()
