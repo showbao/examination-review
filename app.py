@@ -11,7 +11,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 # ==========================================
-# 0. 視覺風格設定 (莫蘭迪色系 & CSS - 放大版)
+# 0. 視覺風格設定 (莫蘭迪色系 & CSS - 放大與層級修正版)
 # ==========================================
 st.set_page_config(page_title="北屯區建功國小AI審題系統", page_icon="📝", layout="wide")
 
@@ -19,22 +19,27 @@ morandi_css = """
 <style>
     /* 全站字體放大 */
     html, body, [class*="css"] {
-        font-size: 18px; 
+        font-size: 20px; 
     }
     
     .stApp { background-color: #F5F7F7; }
     
-    /* 標題放大 */
+    /* 標題層級與大小調整 (v3.3) */
+    /* H1: 主標題 */
     h1 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.5rem !important; }
-    h2 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.0rem !important; }
-    h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 1.5rem !important; }
+    
+    /* H2: 用於 Step 1~6 大步驟標題 (放大) */
+    h2 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.2rem !important; font-weight: bold !important; }
+    
+    /* H3: 用於紅綠燈區塊標題 (縮小) */
+    h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 1.3rem !important; font-weight: normal !important; }
     
     /* 按鈕樣式放大 */
     div.stButton > button {
         background-color: #8DA399; color: white; border-radius: 8px; border: none; 
-        padding: 12px 28px; /* 增加內距 */
+        padding: 12px 28px; 
         font-weight: bold;
-        font-size: 1.1rem; /* 放大按鈕文字 */
+        font-size: 1.1rem; 
     }
     div.stButton > button:hover { background-color: #6E8B7F; color: white; border: 1px solid #6E8B7F; }
     
@@ -42,7 +47,7 @@ morandi_css = """
     .dashboard-card {
         background-color: #E8ECEC; padding: 20px; border-radius: 10px; border-left: 6px solid #8DA399; 
         margin-bottom: 25px; color: #4A4A4A;
-        font-size: 1.1rem; /* 放大看板文字 */
+        font-size: 1.1rem; 
     }
     
     .footer {
@@ -86,7 +91,7 @@ def upload_to_gemini(file_obj):
     os.remove(tmp_path)
     return file_ref
 
-# --- Word 生成核心邏輯 (v3.2 修正版) ---
+# --- Word 生成核心邏輯 (v3.3 修正版) ---
 def set_font_style(run, size=12, bold=False, color=None):
     """設定字體為標楷體 + Times New Roman"""
     run.font.name = 'Times New Roman'
@@ -97,10 +102,14 @@ def set_font_style(run, size=12, bold=False, color=None):
         run.font.color.rgb = color
 
 def clean_markdown_symbol(text):
-    """移除 Markdown 符號與燈號圖示，只保留純文字"""
+    """移除 Markdown 符號與燈號圖示，只保留純文字，並再次確保無 <br>"""
+    # 移除 <br> (雙重保險)
+    text = text.replace("<br>", "").replace("<br/>", "").replace("<br />", "")
+    
     # 移除 Markdown 強調
     text = text.replace("**", "")
     text = text.replace("##", "")
+    text = text.replace("###", "") # v3.3 新增移除三級標題符號
     text = text.lstrip("#")
     
     # 移除燈號圖示 (Word 不顯示圖示，改用顏色區分)
@@ -160,8 +169,9 @@ def create_word_report(analysis_text, metadata):
         line = line.strip()
         if not line: continue
 
-        # 處理標題 (### Step ...)
-        if line.startswith("###"):
+        # 處理 Step 標題 (Markdown ##)
+        # v3.3 邏輯：Step 標題在 Prompt 中改為 ## (H2)
+        if line.startswith("## ") and not any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡"]):
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
@@ -170,19 +180,19 @@ def create_word_report(analysis_text, metadata):
             clean_text = clean_markdown_symbol(line)
             p = doc.add_paragraph()
             run = p.add_run(clean_text)
-            set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153)) # 標題藍色
+            set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153)) # 標題藍色，大字
         
-        # 處理分類小標題 (## 🟢 / ## 🔴)
-        elif line.startswith("##"):
+        # 處理分類小標題 (Markdown ### 🟢 / 🔴 / 🟡)
+        # v3.3 邏輯：紅綠燈標題在 Prompt 中改為 ### (H3)
+        elif line.startswith("###") or (line.startswith("##") and any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡"])):
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
-            # 在清理前先判斷顏色
             is_green = "🟢" in line or "優良" in line or "真素養" in line
-            is_red = "🔴" in line or "警告" in line or "假素養" in line
-            is_yellow = "🟡" in line or "提醒" in line
+            is_red = "🔴" in line or "待改善" in line or "假素養" in line
+            is_yellow = "🟡" in line or "建議" in line
 
             clean_text = clean_markdown_symbol(line)
             p = doc.add_paragraph()
@@ -214,7 +224,7 @@ def create_word_report(analysis_text, metadata):
             
             clean_text = clean_markdown_symbol(line.lstrip("*- "))
             
-            # 修正：檢查是否為空字串，防止出現空白列點
+            # 檢查是否為空字串
             if not clean_text:
                 continue
 
@@ -229,7 +239,7 @@ def create_word_report(analysis_text, metadata):
                 table_mode = False
                 table_data = []
             clean_text = clean_markdown_symbol(line)
-            if not clean_text: continue # 防止空行變成空段落
+            if not clean_text: continue 
             
             p = doc.add_paragraph(clean_text)
             set_font_style(p.runs[0] if p.runs else p.add_run(clean_text), size=12)
@@ -238,7 +248,7 @@ def create_word_report(analysis_text, metadata):
         _render_word_table(doc, table_data)
 
     # 教師回饋區
-    doc.add_paragraph() # 空一行
+    doc.add_paragraph() 
     p = doc.add_paragraph()
     run = p.add_run("命題教師修改及說明")
     set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
@@ -246,7 +256,7 @@ def create_word_report(analysis_text, metadata):
     feedback_table = doc.add_table(rows=1, cols=1)
     feedback_table.style = 'Table Grid'
     cell = feedback_table.cell(0, 0)
-    for _ in range(8): # 預留空間
+    for _ in range(8): 
         cell.add_paragraph()
 
     from io import BytesIO
@@ -288,7 +298,7 @@ def check_password():
         with st.expander("⚠️ 使用前請務必詳閱免責聲明 (點擊展開)", expanded=True):
             st.markdown("""
             **使用前請詳閱以下說明：**
-            1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。
+            1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。**
             2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。
             3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
             4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用，僅限校內使用。
@@ -341,7 +351,6 @@ with st.container():
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("1️⃣ 上傳試卷 (必選)")
-    # UI 修正：提示檔名標註
     exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
 with col2:
     st.subheader("2️⃣ 上傳課本、習作 (可選)")
@@ -437,7 +446,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             st.session_state.metadata = metadata
 
             # ----------------------------------------------------
-            # Phase 2: 深度審查 (Prompt 升級：強制分組)
+            # Phase 2: 深度審查 (Prompt 升級：強制分組 + 免責條款)
             # ----------------------------------------------------
             main_model = genai.GenerativeModel(target_model_name)
             
@@ -451,36 +460,43 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
 目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
 
+**【台灣國小教學情境守則 (Contextual Rules)】：**
+1. **是非題免責**：在審查「是非題」或「改錯題」時，若題目敘述的錯誤是為了測驗學生觀念（且標準答案正確），**不應視為邏輯誤導**。
+2. **在地化教學標準**：針對讀音（如小數讀法）、定義或格式，請以**台灣國小教學現場慣例**為準（例如 3.60015 讀作三點六零零一五是標準，但若通俗讀法不影響數學觀念檢核，請採寬容標準，勿列為嚴重錯誤，除非造成評量爭議）。
+
 **【排版憲法 (Strict Output Rules)】：**
 1. **嚴禁開場白**：禁止輸出「依據...」等引言。
 2. **禁止頁碼**：題目敘述中**嚴禁提及**「第x頁」。
 3. **強制分組歸類 (Grouping)**：
    - 針對 Step 1~3，請務必使用 **二級標題 (##)** 將分析結果歸類。
    - 格式範例：
-     ## 🟢 優點 / 真素養 / 符合
+     ## 🟢 符合範圍 / 優良試題 / 真素養
      * ...
-     ## 🔴 待改進 / 假素養 / 超綱
+     ## 🔴 超出範圍 / 待改善試題 / 假素養
      * ...
-     ## 🟡 建議 / 提醒
+     ## 🟡 建議確認
      * ...
-4. **強制換行**：每一個項目都必須是獨立的 Bullet Point。
+4. **標題層級規範**：
+   - 使用 **## (H2)** 作為 Step 1~6 的大標題。
+   - 使用 **### (H3)** 作為紅綠燈分類的小標題 (例如 ### 🟢 優良試題)。
+5. **強制換行**：每一個項目都必須是獨立的 Bullet Point。
 
 請嚴格依照以下 6 大步驟輸出 Markdown 報告：
 
 ---
-### Step 1: 命題範圍與合規性
-* **請分組**：## 🟢 符合範圍  與  ## 🔴 超出範圍 (若有)。
+## Step 1: 命題範圍與合規性
+* **請分組**：### 🟢 符合範圍  與  ### 🔴 超出範圍 (若有)。
 * 若無上傳教材，請直接輸出警語：「⚠️ 未檢查命題範圍：未上傳教材，故未檢查命題範圍，請老師務必自行審示題目的適切性。」
 
-### Step 2: 題幹與邏輯品質
-* **請分組**：## 🟢 優點 (語意清晰/邏輯嚴謹) 、 ## 🔴 缺點 (語意不清/邏輯謬誤) 、 ## 🟡 建議。
+## Step 2: 題幹與邏輯品質
+* **請分組**：### 🟢 優良試題 、 ### 🔴 待改善試題 、 ### 🟡 建議確認。
 
-### Step 3: 素養導向深度審查
+## Step 3: 素養導向深度審查
 **依據下列標準執行「剝皮測試」：**
 {LITERACY_STANDARDS}
-* **請分組**：## 🟢 真素養 (具體題目分析) 、 ## 🔴 假素養 (具體題目分析)。
+* **請分組**：### 🟢 真素養 (具體題目分析) 、 ### 🔴 假素養 (具體題目分析)。
 
-### Step 4: 雙向細目表核算
+## Step 4: 雙向細目表核算
 **指定單元範圍：** {units_str}
 
 * **情況 A (若有提供單元名稱)：** 製作標準雙向細目表。
@@ -495,11 +511,11 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
     * 請將對應題號填入表格內。
     * **統計：** 務必計算百分比重，總和需為 100%。
 
-### Step 5: 難易度與負擔分析
+## Step 5: 難易度與負擔分析
 * 以表格呈現：難易度分佈、預估閱讀量、作答步驟數。
 
-### Step 6: 總結與建議
-* **請分組**：## 👍 值得讚許之處 、 ## 💡 具體修改建議。
+## Step 6: 總結與建議
+* **請分組**：### 👍 值得讚許之處 、 ### 💡 具體修改建議。
 
 ---
 """
@@ -512,9 +528,13 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             response = main_model.generate_content(prompt_parts)
             
             progress_bar.progress(100)
+            
+            # v3.3 修正：全域清洗 <br> 符號，確保網頁與 Word 顯示正常
+            cleaned_text = response.text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+            
             status_box.success(f"✅ 分析完成！ (目前使用 AI 模組：{target_model_name})")
             
-            st.session_state.analysis_result = response.text
+            st.session_state.analysis_result = cleaned_text
             st.session_state.used_model_name = target_model_name
             
         except Exception as e:
