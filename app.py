@@ -60,6 +60,7 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 def get_best_flash_model(api_key):
     genai.configure(api_key=api_key)
     try:
+        # 尋找最新的 Flash 模型 (包含未來的 3.0-flash)
         models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and "flash" in m.name.lower() and "gemini" in m.name.lower()]
         models.sort(key=lambda x: x.name, reverse=True)
         return models[0].name if models else "models/gemini-1.5-flash"
@@ -68,6 +69,7 @@ def get_best_flash_model(api_key):
 def get_best_pro_model(api_key):
     genai.configure(api_key=api_key)
     try:
+        # 尋找最新的 Pro 模型 (包含未來的 3.0-pro)
         models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and "pro" in m.name.lower() and "gemini" in m.name.lower()]
         models.sort(key=lambda x: x.name, reverse=True)
         return models[0].name if models else "models/gemini-1.5-pro"
@@ -306,13 +308,13 @@ with st.container():
     with col_dash_1:
         st.markdown("""
         <div class="dashboard-card">
-            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷，並於檔名標註「科目領域」以啟動 AI 雙階段識別<br>
-            <small>啟用檔名路由：檔名含「數/理/化/生」➔ Pro | 其餘 ➔ Flash</small>
+            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷<br>
+            <small>智慧路由引擎已啟動：根據教材有無與科目屬性，自動分流至最佳 AI 模型</small>
         </div>
         """, unsafe_allow_html=True)
     with col_dash_2:
         with st.expander("⚙️ 手動模型設定"):
-            model_mode = st.radio("模式", ["依檔名自動路由", "手動指定"], label_visibility="collapsed")
+            model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
             if model_mode == "手動指定":
                 manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"], label_visibility="collapsed")
 
@@ -368,31 +370,46 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
         
         try:
             # ----------------------------------------------------
-            # Phase 1: 路由判斷 + 資訊提取
+            # Phase 1: 智慧分流路由 (Smart Routing) + 資訊提取
             # ----------------------------------------------------
             filename = exam_file.name
             status_box.info(f"🔍 正在解析試卷資訊... (檔名：{filename})")
             progress_bar.progress(10)
 
-            # 1. 決定模型
+            # 1. 判斷科目屬性
             is_science = False
             if any(k in filename for k in ["數學", "自然", "理化", "物理", "化學", "生物"]):
                 is_science = True
             
+            # 2. 決定模型 (核心路由邏輯)
             target_model_name = ""
-            if model_mode == "手動指定":
-                if "Pro" in manual_model: target_model_name = get_best_pro_model(api_key)
-                else: target_model_name = get_best_flash_model(api_key)
-            else:
-                if is_science:
-                    target_model_name = get_best_pro_model(api_key)
-                    routing_msg = "📐 檔名含理科關鍵字，強制切換 Gemini 3.0 Pro"
-                else:
-                    target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📚 預設文科模式，切換 Gemini 3.0 Flash"
-                status_box.info(f"🔄 Phase 2: {routing_msg} 進行深度分析...")
+            routing_msg = ""
 
-            # 2. 資訊提取
+            if model_mode == "手動指定":
+                # 使用者強制指定
+                if "Pro" in manual_model: 
+                    target_model_name = get_best_pro_model(api_key)
+                else: 
+                    target_model_name = get_best_flash_model(api_key)
+            else:
+                # 智慧分流模式
+                if context_files:
+                    # 【規則 1】: 有上傳教材 -> 一律使用 Flash (速度快、讀取能力強)
+                    target_model_name = get_best_flash_model(api_key)
+                    routing_msg = "📚 偵測到參考教材，啟用快速分析模式 (Gemini Flash)"
+                elif is_science:
+                    # 【規則 2】: 無教材 + 數理科 -> 使用 Pro (深度邏輯)
+                    target_model_name = get_best_pro_model(api_key)
+                    routing_msg = "📐 純試卷理科分析，啟用深度推理模式 (Gemini Pro)"
+                else:
+                    # 【規則 3】: 無教材 + 文科 -> 使用 Flash (標準模式)
+                    target_model_name = get_best_flash_model(api_key)
+                    routing_msg = "📝 純試卷文科分析，啟用標準模式 (Gemini Flash)"
+
+            status_box.info(f"🔄 Phase 2: {routing_msg} 進行深度分析...")
+
+            # 3. 資訊提取 (Metadata)
+            # 提取資訊固定使用 Flash 以節省成本與時間
             flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
             exam_ref = upload_to_gemini(exam_file)
             
@@ -503,7 +520,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             
             cleaned_text = response.text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
             
-            status_box.success(f"✅ 分析完成！ (目前使用 AI 模組：{target_model_name})")
+            status_box.success(f"✅ 分析完成！")
             
             st.session_state.analysis_result = cleaned_text
             st.session_state.used_model_name = target_model_name
@@ -515,8 +532,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
     st.markdown("## 📊 審查報告")
-    if st.session_state.used_model_name:
-        st.caption(f"由 {st.session_state.used_model_name} 執行分析")
+    # 這裡已移除顯示「由 models/gemini-pro-latest 執行分析」的程式碼
     st.markdown(st.session_state.analysis_result)
     
     word_binary = create_word_report(st.session_state.analysis_result, st.session_state.metadata)
