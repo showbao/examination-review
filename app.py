@@ -11,7 +11,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 # ==========================================
-# 0. 視覺風格設定 (莫蘭迪色系 & CSS - 放大與層級修正版)
+# 0. 視覺風格設定 (莫蘭迪色系 & CSS)
 # ==========================================
 st.set_page_config(page_title="北屯區建功國小AI審題系統", page_icon="📝", layout="wide")
 
@@ -57,10 +57,12 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 # 1. 輔助函式：模型管理與 Word 生成
 # ==========================================
 
+# --- 後台控制開關 ---
+ENABLE_MANUAL_SETTINGS = False  # Set to True to show manual model selection
+
 def get_best_flash_model(api_key):
     genai.configure(api_key=api_key)
     try:
-        # 尋找最新的 Flash 模型 (包含未來的 3.0-flash)
         models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and "flash" in m.name.lower() and "gemini" in m.name.lower()]
         models.sort(key=lambda x: x.name, reverse=True)
         return models[0].name if models else "models/gemini-1.5-flash"
@@ -69,7 +71,6 @@ def get_best_flash_model(api_key):
 def get_best_pro_model(api_key):
     genai.configure(api_key=api_key)
     try:
-        # 尋找最新的 Pro 模型 (包含未來的 3.0-pro)
         models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and "pro" in m.name.lower() and "gemini" in m.name.lower()]
         models.sort(key=lambda x: x.name, reverse=True)
         return models[0].name if models else "models/gemini-1.5-pro"
@@ -99,11 +100,26 @@ def set_font_style(run, size=12, bold=False, color=None):
         run.font.color.rgb = color
 
 def clean_markdown_symbol(text):
-    """移除 Markdown 符號與燈號圖示，只保留純文字，並再次確保無 <br>"""
+    """
+    強力移除 Markdown 符號與燈號圖示
+    包含：移除開頭的 #, *, - 以及中間的 **
+    """
+    # 1. 移除 Markdown 粗體/斜體標記
+    text = text.replace("**", "").replace("__", "")
+    
+    # 2. 移除 HTML 換行
     text = text.replace("<br>", "").replace("<br/>", "").replace("<br />", "")
-    text = text.replace("**", "").replace("##", "").replace("###", "").lstrip("#")
+    
+    # 3. 移除標題符號 (###, ##) - 使用 Regex 確保乾淨
+    text = re.sub(r'#+\s*', '', text) 
+    
+    # 4. 移除燈號 (這些在 Word 中通常會保留文字描述，但圖示可視情況移除，這裡依您原邏輯移除)
     for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡"]:
         text = text.replace(icon, "")
+        
+    # 5. 移除開頭的 bullet points (如果是被誤判為內文的情況)
+    text = text.lstrip("*- ")
+    
     return text.strip()
 
 def create_word_report(analysis_text, metadata):
@@ -157,7 +173,11 @@ def create_word_report(analysis_text, metadata):
         line = line.strip()
         if not line: continue
 
-        # H2 大標題
+        # 檢測是否為「紅綠燈標題」 (包含 * ### 🟢 這種混合寫法)
+        # 只要有 ## 且包含燈號，就視為 H3 標題，不視為列表
+        is_status_header = ("##" in line) and any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡"])
+
+        # H2 大標題 (Step 1, Step 2...) - 不含燈號
         if line.startswith("## ") and not any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡"]):
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
@@ -168,8 +188,8 @@ def create_word_report(analysis_text, metadata):
             run = p.add_run(clean_text)
             set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153)) 
         
-        # H3 紅綠燈標題
-        elif line.startswith("###") or (line.startswith("##") and any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡"])):
+        # H3 紅綠燈標題 (處理 * ### 🟢 的情況)
+        elif is_status_header:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
@@ -178,7 +198,10 @@ def create_word_report(analysis_text, metadata):
             is_green = "🟢" in line or "優良" in line or "真素養" in line
             is_red = "🔴" in line or "待改善" in line or "假素養" in line
             is_yellow = "🟡" in line or "建議" in line
+            
+            # 使用 clean_markdown_symbol 強力移除 ### 和 *
             clean_text = clean_markdown_symbol(line)
+            
             p = doc.add_paragraph()
             run = p.add_run(clean_text)
             
@@ -194,17 +217,20 @@ def create_word_report(analysis_text, metadata):
             row_cells = [clean_markdown_symbol(c) for c in line.split("|") if c.strip()]
             table_data.append(row_cells)
             
-        # 列表
+        # 列表 (必須排除已被判定為 Header 的行)
         elif line.startswith("*") or line.startswith("-"):
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
-            clean_text = clean_markdown_symbol(line.lstrip("*- "))
-            if not clean_text: continue
-            p = doc.add_paragraph(style='List Bullet')
-            run = p.add_run(clean_text)
-            set_font_style(run, size=12)
+            
+            # 再次確認這不是一個 header (雙重保險)
+            if not is_status_header:
+                clean_text = clean_markdown_symbol(line)
+                if not clean_text: continue
+                p = doc.add_paragraph(style='List Bullet')
+                run = p.add_run(clean_text)
+                set_font_style(run, size=12)
             
         # 一般文字
         else:
@@ -302,21 +328,26 @@ else:
     st.error("請設定 Secrets: GEMINI_API_KEY")
     st.stop()
 
-# --- 儀表板 ---
+# --- 儀表板 (已移除多餘技術文字) ---
 with st.container():
     col_dash_1, col_dash_2 = st.columns([3, 1])
     with col_dash_1:
+        # 修改點 2：移除「智慧路由引擎...」說明文字，只保留系統狀態
         st.markdown("""
         <div class="dashboard-card">
-            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷<br>
-            <small>智慧路由引擎已啟動：根據教材有無與科目屬性，自動分流至最佳 AI 模型</small>
+            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷
         </div>
         """, unsafe_allow_html=True)
     with col_dash_2:
-        with st.expander("⚙️ 手動模型設定"):
-            model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
-            if model_mode == "手動指定":
-                manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"], label_visibility="collapsed")
+        # 修改點 3：隱藏手動設定區塊 (ENABLE_MANUAL_SETTINGS = False)
+        if ENABLE_MANUAL_SETTINGS:
+            with st.expander("⚙️ 手動模型設定"):
+                model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
+                if model_mode == "手動指定":
+                    manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"], label_visibility="collapsed")
+        else:
+            # 預設為智慧分流
+            model_mode = "智慧分流 (建議)"
 
 # --- 上傳區 ---
 col1, col2 = st.columns(2)
@@ -325,7 +356,6 @@ with col1:
     exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
 with col2:
     st.subheader("2️⃣ 上傳課本、習作 (可選)")
-    # UI 優化：提示有上傳課本才會出現單元設定
     context_files = st.file_uploader("請拖曳檔案至此", type=["pdf"], accept_multiple_files=True, key="context_uploader")
 
 # --- 單元設定 (隱藏式，有課本才顯示) ---
@@ -385,8 +415,8 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             target_model_name = ""
             routing_msg = ""
 
-            if model_mode == "手動指定":
-                # 使用者強制指定
+            if model_mode == "手動指定" and ENABLE_MANUAL_SETTINGS:
+                # 使用者強制指定 (僅在後台開啟時有效)
                 if "Pro" in manual_model: 
                     target_model_name = get_best_pro_model(api_key)
                 else: 
@@ -394,22 +424,18 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             else:
                 # 智慧分流模式
                 if context_files:
-                    # 【規則 1】: 有上傳教材 -> 一律使用 Flash (速度快、讀取能力強)
                     target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📚 偵測到參考教材，啟用快速分析模式 (Gemini Flash)"
+                    routing_msg = "📚 偵測到參考教材，啟用快速分析模式"
                 elif is_science:
-                    # 【規則 2】: 無教材 + 數理科 -> 使用 Pro (深度邏輯)
                     target_model_name = get_best_pro_model(api_key)
-                    routing_msg = "📐 純試卷理科分析，啟用深度推理模式 (Gemini Pro)"
+                    routing_msg = "📐 純試卷理科分析，啟用深度推理模式"
                 else:
-                    # 【規則 3】: 無教材 + 文科 -> 使用 Flash (標準模式)
                     target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📝 純試卷文科分析，啟用標準模式 (Gemini Flash)"
+                    routing_msg = "📝 純試卷文科分析，啟用標準模式"
 
-            status_box.info(f"🔄 Phase 2: {routing_msg} 進行深度分析...")
+            status_box.info(f"🔄 Phase 2: {routing_msg}...")
 
             # 3. 資訊提取 (Metadata)
-            # 提取資訊固定使用 Flash 以節省成本與時間
             flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
             exam_ref = upload_to_gemini(exam_file)
             
@@ -435,7 +461,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             st.session_state.metadata = metadata
 
             # ----------------------------------------------------
-            # Phase 2: 深度審查 (Prompt v4.1：表格維穩 + 是非豁免)
+            # Phase 2: 深度審查
             # ----------------------------------------------------
             main_model = genai.GenerativeModel(target_model_name)
             
@@ -477,7 +503,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 {LITERACY_STANDARDS}
 * **請分組**：### 🟢 真素養 (具體題目分析) 、 ### 🔴 假素養 (具體題目分析)。
 
-## Step 4: 公平性與敏感度審查 (新增步驟)
+## Step 4: 公平性與敏感度審查
 * **檢核重點**：檢查試題是否涉及性別刻板印象、族群歧視、政治偏頗、宗教爭議或過度負面的情境（如自殺、暴力）。
 * **請分組**：
     * ### 🟢 通過 (無敏感議題)
@@ -532,7 +558,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
     st.markdown("## 📊 審查報告")
-    # 這裡已移除顯示「由 models/gemini-pro-latest 執行分析」的程式碼
+    # 修改點 1：已移除「由 ... 執行分析」的文字顯示
     st.markdown(st.session_state.analysis_result)
     
     word_binary = create_word_report(st.session_state.analysis_result, st.session_state.metadata)
