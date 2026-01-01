@@ -164,6 +164,29 @@ def create_word_report(analysis_text, metadata):
             
     doc.add_paragraph()
 
+# --- [調整位置] 命題老師修改及說明 (移至最上方) ---
+    p = doc.add_paragraph()
+    run = p.add_run("命題教師修改及說明")
+    set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
+    
+    feedback_table = doc.add_table(rows=1, cols=1)
+    feedback_table.style = 'Table Grid'
+    cell = feedback_table.cell(0, 0)
+    
+    # 方框內文字設定 (新增方塊與內容)
+    checkbox_texts = [
+        "□ 無需修改試題。",
+        "□ 經命題老師確認，以下試題為AI幻覺，已判斷無需修正。\n   試題：_______________________________________________________",
+        "□ 經命題老師確認，以下試題已修正。\n   試題：_______________________________________________________"
+    ]
+    
+    for text in checkbox_texts:
+        p_check = cell.add_paragraph(text)
+        set_font_style(p_check.runs[0] if p_check.runs else p_check.add_run(text), size=12)
+        p_check.paragraph_format.space_after = Pt(6) # 微調行距
+
+    doc.add_paragraph() # 空行分隔
+
     # 內容解析
     lines = analysis_text.split('\n')
     table_mode = False
@@ -246,16 +269,6 @@ def create_word_report(analysis_text, metadata):
     if table_mode and table_data:
         _render_word_table(doc, table_data)
 
-    # 回饋區
-    doc.add_paragraph() 
-    p = doc.add_paragraph()
-    run = p.add_run("命題教師修改及說明")
-    set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
-    feedback_table = doc.add_table(rows=1, cols=1)
-    feedback_table.style = 'Table Grid'
-    cell = feedback_table.cell(0, 0)
-    for _ in range(8): cell.add_paragraph()
-
     from io import BytesIO
     f = BytesIO()
     doc.save(f)
@@ -291,7 +304,7 @@ def check_password():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("## 🔒 北屯區建功國小 AI 審題系統")
+        st.markdown("## 北屯區建功國小 AI 審題系統")
         st.markdown("### ⚠️ 使用前請務必詳閱免責聲明")
         st.markdown("""
         1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。**
@@ -508,12 +521,21 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 2. **禁止頁碼**：題目敘述中**嚴禁提及**「第x頁」。
 3. **精準對應題號**：嚴禁編造題號。
 4. **題號格式統一**：請務必使用「**大題-小題**」格式 (例如：**二-7**、**三-1**)，嚴禁使用「題二-第7題」這種冗贅寫法。
-5. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題。
-6. **強制換行**：每一個項目都必須是獨立的 Bullet Point。
+5. **題目錨點 (關鍵)**：在列出每一題時，**務必於題號後方，括號摘錄該題題目開頭約 5~10 個字**，方便老師對照。
+6. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題。
+7. **強制換行**：每一個項目都必須是獨立的 Bullet Point。
 
-請嚴格依照以下 7 大步驟輸出 Markdown 報告：
+請嚴格依照以下順序輸出 Markdown 報告：
 
 ---
+
+## 📊 總結與建議 (四段式總結)
+* **請分組**：
+    * ### 🔴 最優先修正 (Critical) : (若有重大形式錯誤或答案錯誤，請務必在此標示；若無則填寫「無，試卷品質極佳」)
+    * ### ⚖️ 難度與鑑別度點評 : (預估試卷難度分佈與鑑別度建議)
+    * ### 👍 值得讚許之處 : (列出試卷優點，若超過 5 點請擇優列出)
+    * ### 💡 後續優化建議 : (錦上添花的建議)
+
 ## Step 1: 命題範圍與形式檢查 (大題歸納模式)
 **1. 形式審查 (簡化檢核機制)**：
 * **執行策略**：由於排版複雜，請勿逐題點數。請改為讀取各大題的「文字說明」來進行驗證。
@@ -570,9 +592,6 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 * **表格排版嚴格規定**：
 * 製作一個表格，欄位依序為：難易度(易/中/難) | 佔比 | 對應題號/說明。
 * **嚴禁**在第一欄填寫長篇大論，第一欄只能填「易、中、難」。
-
-## Step 7: 總結與建議
-* **請分組**：### 👍 值得讚許之處 、 ### 💡 具體修改建議。
 
 ---
 """
