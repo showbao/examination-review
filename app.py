@@ -183,7 +183,7 @@ def create_word_report(analysis_text, metadata):
     for text in checkbox_texts:
         p_check = cell.add_paragraph(text)
         set_font_style(p_check.runs[0] if p_check.runs else p_check.add_run(text), size=12)
-        p_check.paragraph_format.space_after = Pt(6) # 微調行距
+        p_check.paragraph_format.line_spacing = 1.5 # 設定 1.5 行距
 
     doc.add_paragraph() # 空行分隔
 
@@ -389,9 +389,6 @@ else:
 
 # --- 審查標準 ---
 LITERACY_STANDARDS = """
-檢核標準：試著將題目中的「情境敘述」（故事、圖片、前言）移除。
-判定：如果移除情境後，學生依然可以直接作答（變成單純的背誦或計算），即判定為「❌ 假素養（裝飾性情境）」。真正的情境必須是解題的必要條件。
-
 【各科真假素養審查標準】：
 1. 國語科：(真)閱讀依存、高階思維、多元表徵；(假)情境脫節、低階提問。
 2. 數學科：(真)功能性情境、真實解題(含雜訊)、數學建模；(假)文字堆砌、數據完美、套路解題。
@@ -555,7 +552,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 
 ## Step 2: 題幹與邏輯品質
 * **請分組 (僅分為優良與待確認)**：
-    * ### 🟢 優良試題 (邏輯清晰、觀念正確、無明顯瑕疵)
+    * ### 🟢 優良試題 (邏輯清晰、觀念正確、無明顯瑕疵;**若超過5題，請自動挑選最具代表性的5題列出，並在最後一行加上『(其餘優良試題略)...』**)
     * ### 🟡 待確認試題 (包含誘答力不足、邏輯潛在瑕疵、語意不清或**任何AI認為需要老師人工再看一眼的題目**)
     
 * **⚠️ 強制豁免守則 (Override Rules)**：
@@ -565,7 +562,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 ## Step 3: 素養導向深度審查
 **依據下列標準執行「剝皮測試」：**
 {LITERACY_STANDARDS}
-* **請分組**：### 🟢 真素養 (具體題目分析) 、 ### 🟡 假素養/待確認 (具體題目分析)。
+* **請分組**：### 🟢 真素養 (具體題目分析;**若超過5題，請自動挑選最具代表性的5題列出，並在最後一行加上『(其餘優良試題略)...』**)) 、 ### 🟡 假素養/待確認 (具體題目分析)。
 
 ## Step 4: 公平性與敏感度審查
 * **檢核重點**：檢查試題是否涉及性別刻板印象、族群歧視、政治偏頗、宗教爭議或過度負面的情境（如自殺、暴力）。
