@@ -29,6 +29,15 @@ morandi_css = """
     h2 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.2rem !important; font-weight: bold !important; }
     h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 1.3rem !important; font-weight: normal !important; }
     
+    /* 針對總結區塊的特別樣式 */
+    .summary-box {
+        background-color: #E3F2FD;
+        border-left: 5px solid #2196F3;
+        padding: 20px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+    }
+
     /* 按鈕樣式放大 */
     div.stButton > button {
         background-color: #8DA399; color: white; border-radius: 8px; border: none; 
@@ -54,11 +63,16 @@ morandi_css = """
 st.markdown(morandi_css, unsafe_allow_html=True)
 
 # ==========================================
-# 1. 輔助函式：模型管理與 Word 生成
+# 1. 系統全域設定 (Global Config)
 # ==========================================
 
-# --- 後台控制開關 ---
-ENABLE_MANUAL_SETTINGS = False  # Set to True to show manual model selection
+# --- [修正點 3-1] 進階功能開關 ---
+# 若要顯示「課本上傳、單元編輯、AI模型手動選擇」，請將此變數改為 True
+ENABLE_ADVANCED_FEATURES = False 
+
+# ==========================================
+# 2. 輔助函式：模型管理與 Word 生成
+# ==========================================
 
 def get_best_flash_model(api_key):
     genai.configure(api_key=api_key)
@@ -100,26 +114,12 @@ def set_font_style(run, size=12, bold=False, color=None):
         run.font.color.rgb = color
 
 def clean_markdown_symbol(text):
-    """
-    強力移除 Markdown 符號與燈號圖示
-    包含：移除開頭的 #, *, - 以及中間的 **
-    """
-    # 1. 移除 Markdown 粗體/斜體標記
     text = text.replace("**", "").replace("__", "")
-    
-    # 2. 移除 HTML 換行
     text = text.replace("<br>", "").replace("<br/>", "").replace("<br />", "")
-    
-    # 3. 移除標題符號 (###, ##) - 使用 Regex 確保乾淨
     text = re.sub(r'#+\s*', '', text) 
-    
-    # 4. 移除燈號 (這些在 Word 中通常會保留文字描述，但圖示可視情況移除，這裡依您原邏輯移除)
     for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️"]:
         text = text.replace(icon, "")
-        
-    # 5. 移除開頭的 bullet points (如果是被誤判為內文的情況)
     text = text.lstrip("*- ")
-    
     return text.strip()
 
 def create_word_report(analysis_text, metadata):
@@ -164,7 +164,7 @@ def create_word_report(analysis_text, metadata):
             
     doc.add_paragraph()
 
-# --- [調整位置] 命題老師修改及說明 (移至最上方) ---
+    # --- [修正點 2] 命題老師修改及說明 (Word 文字重複修正) ---
     p = doc.add_paragraph()
     run = p.add_run("命題教師修改及說明")
     set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
@@ -173,26 +173,25 @@ def create_word_report(analysis_text, metadata):
     feedback_table.style = 'Table Grid'
     cell = feedback_table.cell(0, 0)
     
-    # 方框內文字設定 (新增方塊與內容)
-    checkbox_texts = [
+    # 定義純文字列表 (不含HTML或重複內容)
+    checkbox_items = [
         "無需修改試題。",
         "經命題老師確認，以下試題為AI幻覺，已判斷無需修正。\n   試題：_______________________________________________________",
         "經命題老師確認，以下試題已修正。\n   試題：_______________________________________________________"
     ]
     
-    for text in checkbox_texts:
-        p_check = cell.add_paragraph(text)
-        set_font_style(p_check.runs[0] if p_check.runs else p_check.add_run(text), size=12)
-        p_check.paragraph_format.line_spacing = 1.5 # 設定 1.5 行距
-
-    # 獨立渲染大方框
-        run_box = p_check.add_run("□ ")
-        set_font_style(run_box, size=18) # 放大至 18pt
+    for item_text in checkbox_items:
+        p_check = cell.add_paragraph()
+        p_check.paragraph_format.line_spacing = 1.5
         
-    # 渲染後方文字 (維持 12pt)
-        run_text = p_check.add_run(text)
+        # 獨立渲染大方框
+        run_box = p_check.add_run("□ ")
+        set_font_style(run_box, size=18) 
+        
+        # 渲染後方文字 (使用 item_text 變數，確保不重複)
+        run_text = p_check.add_run(item_text)
         set_font_style(run_text, size=12)
-    
+
     # 新增「其他說明」與留白
     p_other = cell.add_paragraph("其他說明：")
     set_font_style(p_other.runs[0] if p_other.runs else p_other.add_run("其他說明："), size=12)
@@ -202,24 +201,25 @@ def create_word_report(analysis_text, metadata):
     for _ in range(5):
         p_empty = cell.add_paragraph()
         p_empty.paragraph_format.line_spacing = 1.5
-        
+
     doc.add_paragraph() # 空行分隔
 
-    # 內容解析
+    # --- 內容解析 ---
     lines = analysis_text.split('\n')
     table_mode = False
     table_data = []
+
+    FORCE_HEADER_KEYWORDS = ["最優先修正", "難度與鑑別度", "值得讚許", "後續優化", "總結與建議"]
 
     for line in lines:
         line = line.strip()
         if not line: continue
 
-        # 檢測是否為「紅綠燈標題」 (包含 * ### 🟢 這種混合寫法)
-        # 只要有 ## 且包含燈號，就視為 H3 標題，不視為列表
-        is_status_header = ("##" in line) and any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡"])
+        is_force_header = any(k in line for k in FORCE_HEADER_KEYWORDS)
+        is_status_header = ("##" in line) and any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡", "📊", "⚖️"])
+        should_be_h3 = is_status_header or is_force_header
 
-        # H2 大標題 (Step 1, Step 2...) - 不含燈號
-        if line.startswith("## ") and not any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡"]):
+        if line.startswith("## ") and not any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡", "📊", "⚖️"]) and not is_force_header:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
@@ -229,51 +229,46 @@ def create_word_report(analysis_text, metadata):
             run = p.add_run(clean_text)
             set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153)) 
         
-        # H3 紅綠燈標題 (處理 * ### 🟢 的情況)
-        elif is_status_header:
+        elif should_be_h3:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
-            is_green = "🟢" in line or "優良" in line or "真素養" in line
-            is_red = "🔴" in line or "待改善" in line or "假素養" in line
-            is_yellow = "🟡" in line or "建議" in line
+            is_green = "🟢" in line or "優良" in line or "真素養" in line or "形式合規" in line or "通過" in line or "值得讚許" in line
+            is_red = "🔴" in line or "待改善" in line or "假素養" in line or "形式錯誤" in line or "優先修正" in line
+            is_yellow = "🟡" in line or "建議" in line or "待確認" in line or "潛在爭議" in line
             
-            # 使用 clean_markdown_symbol 強力移除 ### 和 *
             clean_text = clean_markdown_symbol(line)
-            
             p = doc.add_paragraph()
             run = p.add_run(clean_text)
             
-            if is_green: set_font_style(run, size=13, bold=True, color=RGBColor(0, 100, 0))
+            if is_force_header and not (is_green or is_red or is_yellow):
+                 set_font_style(run, size=13, bold=True)
+            elif is_green: set_font_style(run, size=13, bold=True, color=RGBColor(0, 100, 0))
             elif is_red: set_font_style(run, size=13, bold=True, color=RGBColor(200, 0, 0))
             elif is_yellow: set_font_style(run, size=13, bold=True, color=RGBColor(204, 153, 0))
             else: set_font_style(run, size=13, bold=True)
 
-        # 表格
         elif line.startswith("|"):
             table_mode = True
             if "---" in line: continue
             row_cells = [clean_markdown_symbol(c) for c in line.split("|") if c.strip()]
             table_data.append(row_cells)
             
-        # 列表 (必須排除已被判定為 Header 的行)
         elif line.startswith("*") or line.startswith("-"):
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
             
-            # 再次確認這不是一個 header (雙重保險)
-            if not is_status_header:
+            if not should_be_h3:
                 clean_text = clean_markdown_symbol(line)
                 if not clean_text: continue
                 p = doc.add_paragraph(style='List Bullet')
                 run = p.add_run(clean_text)
                 set_font_style(run, size=12)
             
-        # 一般文字
         else:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
@@ -311,7 +306,7 @@ def _render_word_table(doc, data):
                         run.font.bold = True
 
 # ==========================================
-# 2. 登入與介面
+# 3. 登入與介面
 # ==========================================
 def render_footer():
     st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
@@ -322,9 +317,10 @@ def check_password():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("## 北屯區建功國小 AI 審題系統")
+        st.markdown("## 🔒 北屯區建功國小 AI 審題系統")
         st.markdown("### ⚠️ 使用前請務必詳閱免責聲明")
         st.markdown("""
+        **使用前請詳閱以下說明：**
         1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。**
         2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。
         3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
@@ -343,7 +339,7 @@ def check_password():
 if not check_password(): st.stop()
 
 # ==========================================
-# 3. 主流程與 Prompt
+# 4. 主流程與 Prompt
 # ==========================================
 
 if "analysis_result" not in st.session_state: st.session_state.analysis_result = None
@@ -358,54 +354,56 @@ else:
     st.error("請設定 Secrets: GEMINI_API_KEY")
     st.stop()
 
-# --- 儀表板 (已移除多餘技術文字) ---
-with st.container():
-    col_dash_1, col_dash_2 = st.columns([3, 1])
-    with col_dash_1:
-        # 修改點 2：移除「智慧路由引擎...」說明文字，只保留系統狀態
-        st.markdown("""
-        <div class="dashboard-card">
-            <b>⚪ 系統狀態：</b>待命中... 請上傳試卷
-        </div>
-        """, unsafe_allow_html=True)
-    with col_dash_2:
-        # 修改點 3：隱藏手動設定區塊 (ENABLE_MANUAL_SETTINGS = False)
-        if ENABLE_MANUAL_SETTINGS:
-            with st.expander("⚙️ 手動模型設定"):
-                model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
-                if model_mode == "手動指定":
-                    manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"], label_visibility="collapsed")
-        else:
-            # 預設為智慧分流
-            model_mode = "智慧分流 (建議)"
+# --- [修正點 3-3] 介面佈局重構：系統狀態與試卷上傳併排 ---
+col_layout_left, col_layout_right = st.columns([1, 2])
 
-# --- 上傳區 ---
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("1️⃣ 上傳試卷 (必選)")
+with col_layout_left:
+    st.markdown("### 📊 系統狀態")
+    st.markdown("""
+    <div class="dashboard-card">
+        <b>⚪ 狀態：</b>待命中<br>
+        <small>請於右側上傳試卷</small>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_layout_right:
+    st.markdown("### 1️⃣ 上傳試卷 (必選)")
     exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
-with col2:
-    st.subheader("2️⃣ 上傳課本、習作 (可選)")
-    context_files = st.file_uploader("請拖曳檔案至此", type=["pdf"], accept_multiple_files=True, key="context_uploader")
 
-# --- 單元設定 (隱藏式，有課本才顯示) ---
-st.markdown("---")
+# --- [修正點 3-2] 進階功能區 (預設隱藏，移至最下方) ---
+# 初始化變數，避免未開啟時報錯
+context_files = None
 unit_list = []
-if context_files:
-    st.subheader("📝 雙向細目表設定 (偵測到課本，已啟用)")
-    col_unit_1, col_unit_2 = st.columns([1, 4])
-    with col_unit_1:
-        unit_count = st.number_input("單元數量", min_value=1, max_value=10, value=3)
-    with col_unit_2:
-        cols = st.columns(unit_count)
-        for i in range(unit_count):
-            with cols[i]:
-                u_name = st.text_input(f"單元 {i+1}", placeholder=f"名稱", key=f"unit_{i}")
-                if u_name: unit_list.append(u_name)
-else:
-    st.info("💡 提示：若需製作「分單元」的標準雙向細目表，請先於上方上傳課本或習作 PDF。")
+manual_model = "Gemini 3.0 Flash"
+model_mode = "智慧分流"
 
-# --- 審查標準 ---
+if ENABLE_ADVANCED_FEATURES:
+    st.markdown("---")
+    st.markdown("#### ⚙️ 進階設定 (教材、單元、模型)")
+    
+    with st.expander("📂 參考教材與單元設定", expanded=False):
+        col_adv_1, col_adv_2 = st.columns(2)
+        with col_adv_1:
+            st.markdown("**上傳課本、習作 (可選)**")
+            context_files = st.file_uploader("拖曳參考教材", type=["pdf"], accept_multiple_files=True, key="context_uploader")
+        with col_adv_2:
+            st.markdown("**雙向細目表單元設定**")
+            if context_files:
+                unit_count = st.number_input("單元數量", min_value=1, max_value=10, value=3)
+                cols = st.columns(unit_count)
+                for i in range(unit_count):
+                    with cols[i]:
+                        u_name = st.text_input(f"單元 {i+1}", key=f"unit_{i}")
+                        if u_name: unit_list.append(u_name)
+            else:
+                st.info("💡 請先上傳教材以啟用單元編輯")
+
+    with st.expander("🧠 AI 模型核心設定", expanded=False):
+        model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
+        if model_mode == "手動指定":
+            manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"])
+
+# --- 審查標準 (維持隱藏或折疊) ---
 LITERACY_STANDARDS = """
 【各科真假素養審查標準】：
 1. 國語科：(真)閱讀依存、高階思維、多元表徵；(假)情境脫節、低階提問。
@@ -427,7 +425,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
         
         try:
             # ----------------------------------------------------
-            # Phase 1: 智慧分流路由 (Smart Routing) + 資訊提取
+            # Phase 1: 智慧分流路由 (Smart Routing)
             # ----------------------------------------------------
             filename = exam_file.name
             status_box.info(f"🔍 正在解析試卷資訊... (檔名：{filename})")
@@ -442,14 +440,12 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             target_model_name = ""
             routing_msg = ""
 
-            if model_mode == "手動指定" and ENABLE_MANUAL_SETTINGS:
-                # 使用者強制指定 (僅在後台開啟時有效)
+            if model_mode == "手動指定" and ENABLE_ADVANCED_FEATURES:
                 if "Pro" in manual_model: 
                     target_model_name = get_best_pro_model(api_key)
                 else: 
                     target_model_name = get_best_flash_model(api_key)
             else:
-                # 智慧分流模式
                 if context_files:
                     target_model_name = get_best_flash_model(api_key)
                     routing_msg = "📚 偵測到參考教材，啟用快速分析模式"
@@ -488,7 +484,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             st.session_state.metadata = metadata
 
             # ----------------------------------------------------
-            # Phase 2: 深度審查
+            # Phase 2: 深度審查 (Updated Prompt v5.2 - Total Score Logic Fix)
             # ----------------------------------------------------
             main_model = genai.GenerativeModel(target_model_name)
             
@@ -497,6 +493,17 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
                 for cf in context_files: prompt_parts.append(upload_to_gemini(cf))
             
             units_str = ", ".join(unit_list) if unit_list else "未提供"
+
+            if context_files:
+                step1_scope_instruction = """
+                * **範圍比對**：請依據上傳的參考教材內容，判斷試題是否符合教學範圍。
+                * **請分組**：### 🟢 符合範圍  與  ### 🔴 超出範圍 (若有)。
+                """
+            else:
+                step1_scope_instruction = """
+                * **範圍比對**：無需進行範圍比對，亦不可輸出「符合範圍」或「超出範圍」的紅綠燈標題。
+                * **強制輸出**：請直接輸出警語：「⚠️ 未檢查命題範圍：未上傳教材，故未檢查命題範圍，請老師務必自行審示題目的適切性。」
+                """
 
             base_prompt = f"""
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
@@ -560,7 +567,7 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
     3.  **總分估算**：將你抓取到的「各大題總分說明」相加，確認是否為 100 分。
     4.  **跳號抽查**：請只檢查「危險區域」的連號狀況（例如：左欄最後一題 vs 右欄第一題；或是第一頁最後一題 vs 第二頁第一題），確認是否有明顯斷層。
 * **請分組**：
-    * ### 🟢 形式合規 (請列出：各大題配分加總結果、換頁/換欄處無明顯跳號)
+    * ### 🟢 形式合規 (若總分等於 100 分，嚴禁列出各大題細項，僅需回報「總分計算正確 (100分)」；若換頁處無跳號，回報「題號銜接正常」)
     * ### 🔴 形式錯誤 (若配分說明加總不等於100，或換頁處有明顯題號中斷)
     * ### 🟡 無法判定 (若試卷未標註配分說明，或排版過於混亂無法辨識)
 
@@ -633,19 +640,12 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
-    # [修正點 3] 網頁版：將總結與建議區塊獨立渲染 (UI Separation)
-    # 嘗試切割 "## Step 1" 來分離總結與正文
     if "## Step 1" in st.session_state.analysis_result:
         summary_part, body_part = st.session_state.analysis_result.split("## Step 1", 1)
-        body_part = "## Step 1" + body_part # 補回 Step 1 標題
-        
-        # 1. 渲染上方總結區 (使用 st.info 藍色區塊)
-        st.info(summary_part.replace("## 📊 總結與建議", "### 📊 總結與建議")) 
-        
-        # 2. 渲染下方正文區
+        body_part = "## Step 1" + body_part 
+        st.info(summary_part.replace("## 總結與建議", "### 📊 總結與建議")) 
         st.markdown(body_part)
     else:
-        # 如果格式不如預期，則回退到標準渲染
         st.markdown("## 📊 審查報告")
         st.markdown(st.session_state.analysis_result)
     
