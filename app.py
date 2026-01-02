@@ -114,7 +114,7 @@ def clean_markdown_symbol(text):
     text = re.sub(r'#+\s*', '', text) 
     
     # 4. 移除燈號 (這些在 Word 中通常會保留文字描述，但圖示可視情況移除，這裡依您原邏輯移除)
-    for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡"]:
+    for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️"]:
         text = text.replace(icon, "")
         
     # 5. 移除開頭的 bullet points (如果是被誤判為內文的情況)
@@ -175,9 +175,9 @@ def create_word_report(analysis_text, metadata):
     
     # 方框內文字設定 (新增方塊與內容)
     checkbox_texts = [
-        "□ 無需修改試題。",
-        "□ 經命題老師確認，以下試題為AI幻覺，已判斷無需修正。\n   試題：_______________________________________________________",
-        "□ 經命題老師確認，以下試題已修正。\n   試題：_______________________________________________________"
+        "無需修改試題。",
+        "經命題老師確認，以下試題為AI幻覺，已判斷無需修正。\n   試題：_______________________________________________________",
+        "經命題老師確認，以下試題已修正。\n   試題：_______________________________________________________"
     ]
     
     for text in checkbox_texts:
@@ -185,6 +185,14 @@ def create_word_report(analysis_text, metadata):
         set_font_style(p_check.runs[0] if p_check.runs else p_check.add_run(text), size=12)
         p_check.paragraph_format.line_spacing = 1.5 # 設定 1.5 行距
 
+    # 獨立渲染大方框
+        run_box = p_check.add_run("□ ")
+        set_font_style(run_box, size=18) # 放大至 18pt
+        
+    # 渲染後方文字 (維持 12pt)
+        run_text = p_check.add_run(text)
+        set_font_style(run_text, size=12)
+    
     # 新增「其他說明」與留白
     p_other = cell.add_paragraph("其他說明：")
     set_font_style(p_other.runs[0] if p_other.runs else p_other.add_run("其他說明："), size=12)
@@ -625,9 +633,21 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
-    st.markdown("## 📊 審查報告")
-    # 修改點 1：已移除「由 ... 執行分析」的文字顯示
-    st.markdown(st.session_state.analysis_result)
+    # [修正點 3] 網頁版：將總結與建議區塊獨立渲染 (UI Separation)
+    # 嘗試切割 "## Step 1" 來分離總結與正文
+    if "## Step 1" in st.session_state.analysis_result:
+        summary_part, body_part = st.session_state.analysis_result.split("## Step 1", 1)
+        body_part = "## Step 1" + body_part # 補回 Step 1 標題
+        
+        # 1. 渲染上方總結區 (使用 st.info 藍色區塊)
+        st.info(summary_part.replace("## 📊 總結與建議", "### 📊 總結與建議")) 
+        
+        # 2. 渲染下方正文區
+        st.markdown(body_part)
+    else:
+        # 如果格式不如預期，則回退到標準渲染
+        st.markdown("## 📊 審查報告")
+        st.markdown(st.session_state.analysis_result)
     
     word_binary = create_word_report(st.session_state.analysis_result, st.session_state.metadata)
     
