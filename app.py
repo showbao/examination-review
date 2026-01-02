@@ -185,6 +185,16 @@ def create_word_report(analysis_text, metadata):
         set_font_style(p_check.runs[0] if p_check.runs else p_check.add_run(text), size=12)
         p_check.paragraph_format.line_spacing = 1.5 # 設定 1.5 行距
 
+    # 新增「其他說明」與留白
+    p_other = cell.add_paragraph("其他說明：")
+    set_font_style(p_other.runs[0] if p_other.runs else p_other.add_run("其他說明："), size=12)
+    p_other.paragraph_format.line_spacing = 1.5
+    
+    # 預留 5 行空行供手寫
+    for _ in range(5):
+        p_empty = cell.add_paragraph()
+        p_empty.paragraph_format.line_spacing = 1.5
+        
     doc.add_paragraph() # 空行分隔
 
     # 內容解析
