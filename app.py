@@ -38,44 +38,40 @@ morandi_css = """
         margin-bottom: 20px;
     }
 
-/* [修改區塊] 按鈕樣式：簡約細框 + 灰白陰影 + 無填滿 */
+/* [修改區塊] 按鈕樣式：簡約細框 + 自適應大小 (非正方形) */
     div.stButton > button {
         background-color: #FFFFFF !important;      /* 內部留白 (無填滿) */
         color: #5B7C99 !important;                 /* 文字顏色 (莫蘭迪藍灰) */
         border: 1px solid #E0E0E0 !important;      /* 極細灰框線 */
-        border-radius: 15px;                       /* 較圓潤的邊角 */
+        border-radius: 12px;                       /* 圓角 */
         
         /* 核心設計：灰白陰影 (創造浮起感) */
-        box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.05), -4px -4px 10px #FFFFFF !important;
+        box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.05), -2px -2px 6px #FFFFFF !important;
         
-        /* 排版與尺寸設定 */
-        padding: 0px;
+        /* [修改點] 改為自適應大小 */
+        height: auto !important;    /* 高度自動，不再強制 120px */
+        width: auto !important;     /* 寬度自動，包住文字即可 */
+        padding: 10px 25px !important; /* 內距：讓文字周圍留有舒適空間 */
+        margin-top: 10px;           /* 稍微與上方拉開距離 */
+        
         font-weight: bold;
-        font-size: 1.3rem; 
-        height: 120px !important;  /* 保持正方形/大按鈕高度 */
-        width: 100% !important;
+        font-size: 1.1rem;          /* 字體稍微縮回標準大小 */
         
         /* 動畫過渡 */
         transition: all 0.3s ease;
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        white-space: pre-wrap;
     }
 
     /* 滑鼠懸停效果 (Hover) */
     div.stButton > button:hover {
-        background-color: #FDFDFD !important;      /* 懸停時維持亮白 */
-        color: #8DA399 !important;                 /* 文字變色 (莫蘭迪綠) */
-        border: 1px solid #8DA399 !important;      /* 框線變色 */
-        transform: translateY(-3px);               /* 向上浮起 */
-        
-        /* 陰影加深，增強立體感 */
-        box-shadow: 6px 6px 15px rgba(0, 0, 0, 0.1), -4px -4px 12px #FFFFFF !important;
+        background-color: #FDFDFD !important;
+        color: #8DA399 !important;
+        border: 1px solid #8DA399 !important;
+        transform: translateY(-2px);
+        box-shadow: 5px 5px 12px rgba(0, 0, 0, 0.1), -3px -3px 8px #FFFFFF !important;
     }
-    
-    /* [修改結束] */
     
     /* 資訊看板樣式放大 */
     .dashboard-card {
