@@ -447,12 +447,9 @@ LITERACY_STANDARDS = """
 
 st.markdown("---")
 
-# 透過 CSS 讓按鈕在右側欄位對齊
-with col_btn:
-    # [修改 3] 使用空白的 subheader 進行佔位
-    # 這會讓右邊的按鈕被推擠到與左邊「檔案上傳框 (Browse files)」完全平行的高度
-    st.subheader("", anchor=False) 
-    start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
+# --- 按鈕區 (修正 NameError) ---
+st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True) # 調整間距
+start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
 
 if start_btn:
     if not exam_file:
