@@ -380,16 +380,13 @@ else:
     st.error("請設定 Secrets: GEMINI_API_KEY")
     st.stop()
 
-# --- [修正點 2] 介面佈局重構：左側上傳，右側按鈕 ---
-# --- 介面佈局：左側上傳，右側按鈕 ---
-col_main, col_btn = st.columns([3, 1])
+# --- 介面佈局：上傳區 (不分欄) ---
+st.subheader("⚠️上傳試卷")
+exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
-with col_main:
-    # [修改 1] 移除 "1️⃣"，只保留文字
-    st.subheader("上傳試卷 (必選)")
-    # [修改 2] 增加 label_visibility="collapsed" 來隱藏「請拖曳檔案至此」的提示字
-    exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
-
+# --- 按鈕區 (位於上傳區正下方) ---
+st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) # 增加一點點垂直間距
+start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
 # 這裡不放任何內容，按鈕在下方邏輯控制時再渲染到這個 column
 # 為了版面整齊，我們在後面才填入 col_btn
 
