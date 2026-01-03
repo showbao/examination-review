@@ -380,18 +380,18 @@ else:
     st.error("請設定 Secrets: GEMINI_API_KEY")
     st.stop()
 
-# --- 介面佈局：上傳區 (不分欄) ---
-st.subheader("⚠️上傳試卷")
+# --- 介面佈局：上傳區 (單欄流式排版) ---
+# [修改 1] 移除分欄，改為直式排列
+st.subheader("1️⃣ 上傳試卷 (必選)")
 exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
 # --- 按鈕區 (位於上傳區正下方) ---
-st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) # 增加一點點垂直間距
+# [修改 2] 按鈕直接緊接在上傳區下方
+st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
 start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
-# 這裡不放任何內容，按鈕在下方邏輯控制時再渲染到這個 column
-# 為了版面整齊，我們在後面才填入 col_btn
 
-# --- 進階功能區 (預設隱藏，移至最下方) ---
-# 初始化變數
+# --- 進階功能區 (預設隱藏) ---
+# 初始化變數 (避免未開啟時報錯)
 context_files = None
 unit_list = []
 manual_model = "Gemini 3.0 Flash"
@@ -401,7 +401,6 @@ if ENABLE_ADVANCED_FEATURES:
     st.markdown("---")
     st.markdown("#### ⚙️ 進階設定 (系統狀態、教材、單元、模型)")
     
-    # 隱藏的系統狀態區
     st.markdown("""
     <div class="dashboard-card">
         <b>⚪ 系統狀態：</b>待命中... 請上傳試卷<br>
@@ -446,10 +445,6 @@ LITERACY_STANDARDS = """
 """
 
 st.markdown("---")
-
-# --- 按鈕區 (修正 NameError) ---
-st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True) # 調整間距
-start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
 
 if start_btn:
     if not exam_file:
