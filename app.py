@@ -38,14 +38,31 @@ morandi_css = """
         margin-bottom: 20px;
     }
 
-    /* 按鈕樣式放大 */
+    /* [修正點 2] 正方形大按鈕樣式優化 */
     div.stButton > button {
-        background-color: #8DA399; color: white; border-radius: 8px; border: none; 
-        padding: 12px 28px; 
+        background-color: #8DA399; 
+        color: white; 
+        border-radius: 12px; /* 圓角 */
+        border: none; 
+        padding: 0px;
         font-weight: bold;
-        font-size: 1.1rem; 
+        font-size: 1.3rem; 
+        height: 120px !important;  /* 強制高度 */
+        width: 100% !important;    /* 填滿欄位 */
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        white-space: pre-wrap; /* 允許文字換行 */
     }
-    div.stButton > button:hover { background-color: #6E8B7F; color: white; border: 1px solid #6E8B7F; }
+    div.stButton > button:hover { 
+        background-color: #6E8B7F; 
+        color: white; 
+        transform: translateY(-2px);
+        box-shadow: 0 6px 10px rgba(0,0,0,0.2);
+    }
     
     /* 資訊看板樣式放大 */
     .dashboard-card {
@@ -173,7 +190,7 @@ def create_word_report(analysis_text, metadata):
     feedback_table.style = 'Table Grid'
     cell = feedback_table.cell(0, 0)
     
-    # 定義純文字列表 (修正重複問題)
+    # 定義純文字列表
     checkbox_items = [
         "無需修改試題。",
         "經命題老師確認，以下試題為AI幻覺，已判斷無需修正。\n   試題：_______________________________________________________",
@@ -306,7 +323,7 @@ def _render_word_table(doc, data):
                         run.font.bold = True
 
 # ==========================================
-# 3. 登入與介面
+# 2. 登入與介面
 # ==========================================
 def render_footer():
     st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
@@ -317,7 +334,7 @@ def check_password():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("## 🔒 北屯區建功國小 AI 審題系統")
+        st.markdown("## 北屯區建功國小 AI 審題系統")
         st.markdown("### ⚠️ 使用前請務必詳閱免責聲明")
         st.markdown("""
         **使用前請詳閱以下說明：**
@@ -354,9 +371,15 @@ else:
     st.error("請設定 Secrets: GEMINI_API_KEY")
     st.stop()
 
-# --- [修正點 1] 介面佈局重構：將上傳區置中，移除左側系統狀態欄 (移至隱藏區) ---
-st.subheader("1️⃣ 上傳試卷 (必選)")
-exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
+# --- [修正點 2] 介面佈局重構：左側上傳，右側按鈕 ---
+col_main, col_btn = st.columns([3, 1])
+
+with col_main:
+    st.subheader("1️⃣ 上傳試卷 (必選)")
+    exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
+
+# 這裡不放任何內容，按鈕在下方邏輯控制時再渲染到這個 column
+# 為了版面整齊，我們在後面才填入 col_btn
 
 # --- 進階功能區 (預設隱藏，移至最下方) ---
 # 初始化變數
@@ -369,10 +392,10 @@ if ENABLE_ADVANCED_FEATURES:
     st.markdown("---")
     st.markdown("#### ⚙️ 進階設定 (系統狀態、教材、單元、模型)")
     
-    # 將「系統狀態」移至此處
+    # 隱藏的系統狀態區
     st.markdown("""
     <div class="dashboard-card">
-        <b>⚪ 系統狀態：</b>待命中... 請上傳試卷，並於檔名標註「科目領域」以啟動 AI 雙階段識別<br>
+        <b>⚪ 系統狀態：</b>待命中... 請上傳試卷<br>
         <small>啟用檔名路由：檔名含「數/理/化/生」➔ Pro | 其餘 ➔ Flash</small>
     </div>
     """, unsafe_allow_html=True)
@@ -397,7 +420,7 @@ if ENABLE_ADVANCED_FEATURES:
     with st.expander("🧠 AI 模型核心設定", expanded=False):
         model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
         if model_mode == "手動指定":
-            manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"])
+            manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"], label_visibility="collapsed")
 
 # --- 審查標準 (隱藏) ---
 LITERACY_STANDARDS = """
@@ -415,7 +438,12 @@ LITERACY_STANDARDS = """
 
 st.markdown("---")
 
-if st.button("🚀 開始全方位審查", type="primary", use_container_width=True):
+# 透過 CSS 讓按鈕在右側欄位對齊
+with col_btn:
+    st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True) # 視覺對齊用 Spacer
+    start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
+
+if start_btn:
     if not exam_file:
         st.warning("❌ 請務必上傳一份「試卷」！")
     else:
@@ -445,15 +473,17 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
                 else: 
                     target_model_name = get_best_flash_model(api_key)
             else:
+                # [修正點 1] 強制全線使用 Flash，但保留邏輯結構方便未來切換
                 if context_files:
                     target_model_name = get_best_flash_model(api_key)
                     routing_msg = "📚 偵測到參考教材，啟用快速分析模式"
                 elif is_science:
-                    target_model_name = get_best_pro_model(api_key)
-                    routing_msg = "📐 純試卷理科分析，啟用深度推理模式"
+                    # target_model_name = get_best_pro_model(api_key)  <-- 原本邏輯 (暫時停用)
+                    target_model_name = get_best_flash_model(api_key) # <-- 強制使用 Flash
+                    routing_msg = "📐 理科試卷分析 (強制啟用 Flash 模式)"
                 else:
                     target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📝 純試卷文科分析，啟用標準模式"
+                    routing_msg = "📝 文科試卷分析 (啟用標準模式)"
 
             status_box.info(f"🔄 Phase 2: {routing_msg}...")
 
@@ -483,8 +513,16 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             st.session_state.metadata = metadata
 
             # ----------------------------------------------------
-            # Phase 2: 深度審查 (Updated Prompt v5.3 - Conditional Rendering)
+            # Phase 2: 深度審查 (Updated Prompt v5.4 - Flash Optimized)
             # ----------------------------------------------------
+            
+            # [修正點 3] 設定生成參數：Temperature = 0 (強制理性，降低幻覺)
+            generation_config = {
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "top_k": 32,
+            }
+            
             main_model = genai.GenerativeModel(target_model_name)
             
             prompt_parts = []
@@ -508,15 +546,43 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
 目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
 
-**【台灣試卷三大排版閱讀協定】**：
-1. **Mode 1 不分欄**：Z 字型閱讀。
-2. **Mode 2 左右雙欄**：先讀左欄再讀右欄 (數學/自然/英文)。
-3. **Mode 3 上下分欄**：先讀上欄再讀下欄 (國語直書)。
+**【台灣試卷三大排版閱讀協定 (Taiwan Exam Layout Protocol)】：**
+請先掃描整份試卷的幾何結構，並嚴格依照下列 **3 種模式** 擇一執行閱讀：
+
+**Mode 1: 不分欄 (Single Column)**
+* **特徵**：A4或A3版面，整頁無明顯分隔線。
+* **閱讀順序**：標準 Z 字型（由左至右 ➡，由上而下 ⬇）。
+
+**Mode 2: 左右雙欄 (Left-Right Split)**
+* **特徵**：B4版面，中間有一條「垂直分隔線」，文字橫書（常見於數學、自然、社會、英文）。
+* **閱讀順序**：
+    1.  **先讀左欄**：在左半頁範圍內，由左至右、由上而下讀取。
+    2.  **再讀右欄**：移至右半頁，由左至右、由上而下讀取。
+    * *注意：嚴禁跨欄閱讀（即不可直接從左欄第一行讀到右欄第一行）。*
+
+**Mode 3: 上下分欄 (Top-Bottom Split)**
+* **特徵**：B4版面，中間有一條「水平分隔線」，文字為**直書**（由上而下排列，常見於國語文）。
+* **閱讀順序**：
+    1.  **先讀上欄**：在上半頁範圍內，**由右至左 ⬅** 掃描直行文字。
+    2.  **再讀下欄**：移至下半頁，**由右至左 ⬅** 掃描直行文字。
+
+**2. 跨欄/跨頁拼接技術 (Cross-Page Stitching)**：
+* **「題號」是你的唯一導航**：在閱讀時，請隨時追蹤題號（1, 2, 3...）。
+* **斷點偵測**：當一個欄位或頁面結束時，若最後一題（例如第 5 題）只有題幹沒有選項，**請立即去「下一欄頂端」或「下一頁開頭」尋找該題的剩餘部分**。
+* **嚴禁幻覺**：如果找不到接續的內容，請標記該題為「題目內容不完整」，絕對不可自行編造選項。
+
+**【台灣國小教學情境守則 (Contextual Rules)】：**
+1. **是非題/改錯題 絕對豁免**：在審查「是非題」或「改錯題」時，若題目敘述的錯誤是為了測驗學生觀念（且標準答案為「X」或「不正確」），這是**正確的命題設計**。請將其歸類為 **優良試題**，**嚴禁**列為待改善或假素養。只有當「錯誤觀念」被標示為「正確答案 (O)」時，才視為命題錯誤。
+2. **在地化教學標準**：針對讀音、定義或格式，以台灣國小教學現場慣例為準。
 
 **【排版與精準度憲法】：**
-1. 嚴禁開場白。
-2. 禁止頁碼，精準對應題號。
-3. 強制換行。
+1. **嚴禁開場白**。
+2. **禁止頁碼**：題目敘述中**嚴禁提及**「第x頁」。
+3. **精準對應題號**：嚴禁編造題號。
+4. **題號格式統一**：請務必使用「**大題-小題**」格式 (例如：**二-7**、**三-1**)，嚴禁使用「題二-第7題」這種冗贅寫法。
+5. **題目錨點 (關鍵)**：在列出每一題時，**務必於題號後方，括號摘錄該題題目開頭約 5~10 個字**，方便老師對照。
+6. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題。
+7. **強制換行**：每一個項目都必須是獨立的 Bullet Point。
 
 請嚴格依照以下順序輸出 Markdown 報告：
 
@@ -530,15 +596,20 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
     * ### 💡 後續優化建議 : (錦上添花的建議)
 
 ## Step 1: 命題範圍與形式檢查
-**1. 形式審查 (請遵循『有錯才報，無錯隱藏』原則)**：
-* **執行策略**：讀取各大題配分說明並加總。
+**1. 範圍審查**：
+{step1_scope_instruction}
+
+**2. 形式審查 (請遵循『有錯才報，無錯隱藏』原則)**：
+* **執行策略**：由於排版複雜，請勿逐題點數。請改為讀取各大題的「文字說明」來進行驗證。
+* **檢查步驟**：
+    1.  **排版識別**：簡單描述是直書/橫書、單欄/雙欄/上下欄。
+    2.  **大題配分抓取**：請找出試卷中各大題的標題（例如：「一、選擇題」、「二、填充題」），讀取其後方的配分說明（例如：「每題2分，共20分」）。
+    3.  **總分估算**：將你抓取到的「各大題總分說明」相加，確認是否為 100 分。
+    4.  **跳號抽查**：請只檢查「危險區域」的連號狀況（例如：左欄最後一題 vs 右欄第一題；或是第一頁最後一題 vs 第二頁第一題），確認是否有明顯斷層。
 * **輸出規則 (嚴格執行)**：
     * ### 🟢 形式合規 : **(只有當「總分等於 100 分」且「題號無跳號」時才輸出此標題)**。內容請回報「分數加總正確」及「題號銜接正常 (無明顯跳號或跨欄中斷)」。
     * ### 🔴 形式錯誤 : **(只有當「總分不等於 100 分」或「題號有跳號」時才輸出此標題)**。內容請具體指出是哪一個大題算錯，或是哪裡跳號。**若無錯誤，絕對不要輸出此標題及內容。**
     * ### 🟡 無法判定 : **(只有當「排版過於混亂」導致無法辨識時才輸出此標題)**。**若版面清晰，絕對不要輸出此標題及內容。**
-
-**2. 範圍審查**：
-{step1_scope_instruction}
 
 ## Step 2: 題幹與邏輯品質
 * **請分組**：
@@ -562,13 +633,21 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 **指定單元範圍：** {units_str}
 **上傳課本狀態：** {"已上傳" if context_files else "未上傳"}
 
-* **情況 A (已上傳課本)：** 製作標準雙向細目表。
-* **情況 B (未上傳課本)：** 製作向度分析表。
+* **情況 A (已上傳課本 且 有提供單元名稱)：** 製作標準雙向細目表。
+    * 建立二維表格：直欄為單元名稱，橫列為認知向度。
+    * **統計：** 計算百分比重，確認總計 100%。
+
+* **情況 B (未上傳課本 或 無提供單元名稱)：** 製作向度分析表。
+    * **表格排版嚴格規定**：
+    * 第一欄標題為「認知歷程向度」，且內容**只能**填寫「知識、理解、應用、分析、綜合、評鑑」這六個詞，**嚴禁**填寫題號或題型。
+    * 第二欄標題為「對應題號」，請在此欄填寫題號與題型（如：是非 1, 3, 5）。
+    * 第三欄標題為「佔比」。
     * **統計：** 務必計算百分比重，總和需為 100%。
 
 ## Step 6: 難易度與負擔分析
 * **表格排版嚴格規定**：
 * 製作一個表格，欄位依序為：難易度(易/中/難) | 佔比 | 對應題號/說明。
+* **嚴禁**在第一欄填寫長篇大論，第一欄只能填「易、中、難」。
 
 ---
 """
@@ -578,7 +657,12 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
             prompt_parts.append(exam_ref)
             
             progress_bar.progress(60)
-            response = main_model.generate_content(prompt_parts)
+            
+            # [修正點 3] 帶入 generation_config 以鎖定 Temperature
+            response = main_model.generate_content(
+                prompt_parts,
+                generation_config=generation_config
+            )
             
             progress_bar.progress(100)
             
@@ -595,12 +679,19 @@ if st.button("🚀 開始全方位審查", type="primary", use_container_width=T
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
+    # 網頁版：將總結與建議區塊獨立渲染 (UI Separation)
+    # 嘗試切割 "## Step 1" 來分離總結與正文
     if "## Step 1" in st.session_state.analysis_result:
         summary_part, body_part = st.session_state.analysis_result.split("## Step 1", 1)
-        body_part = "## Step 1" + body_part 
+        body_part = "## Step 1" + body_part # 補回 Step 1 標題
+        
+        # 1. 渲染上方總結區 (使用 st.info 藍色區塊)
         st.info(summary_part.replace("## 總結與建議", "### 📊 總結與建議")) 
+        
+        # 2. 渲染下方正文區
         st.markdown(body_part)
     else:
+        # 如果格式不如預期，則回退到標準渲染
         st.markdown("## 📊 審查報告")
         st.markdown(st.session_state.analysis_result)
     
