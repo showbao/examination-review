@@ -381,11 +381,14 @@ else:
     st.stop()
 
 # --- [修正點 2] 介面佈局重構：左側上傳，右側按鈕 ---
+# --- 介面佈局：左側上傳，右側按鈕 ---
 col_main, col_btn = st.columns([3, 1])
 
 with col_main:
-    st.subheader("1️⃣ 上傳試卷 (必選)")
-    exam_file = st.file_uploader("請拖曳檔案至此", type=["pdf", "jpg", "png"], key="exam_uploader")
+    # [修改 1] 移除 "1️⃣"，只保留文字
+    st.subheader("上傳試卷 (必選)")
+    # [修改 2] 增加 label_visibility="collapsed" 來隱藏「請拖曳檔案至此」的提示字
+    exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
 # 這裡不放任何內容，按鈕在下方邏輯控制時再渲染到這個 column
 # 為了版面整齊，我們在後面才填入 col_btn
@@ -449,7 +452,9 @@ st.markdown("---")
 
 # 透過 CSS 讓按鈕在右側欄位對齊
 with col_btn:
-    st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True) # 視覺對齊用 Spacer
+    # [修改 3] 使用空白的 subheader 進行佔位
+    # 這會讓右邊的按鈕被推擠到與左邊「檔案上傳框 (Browse files)」完全平行的高度
+    st.subheader("", anchor=False) 
     start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
 
 if start_btn:
@@ -589,7 +594,7 @@ if start_btn:
 2. **禁止頁碼**：題目敘述中**嚴禁提及**「第x頁」。
 3. **精準對應題號**：嚴禁編造題號。
 4. **題號格式統一**：請務必使用「**大題-小題**」格式 (例如：**二-7**、**三-1**)，嚴禁使用「題二-第7題」這種冗贅寫法。
-5. **題目錨點 (關鍵)**：在列出每一題時，**務必於題號後方，括號摘錄該題題目開頭約 5~10 個字**，方便老師對照。
+5. **題目錨點 (關鍵)**：在Step 1 ~ Step 3列出每一題時，**務必於題號後方，括號摘錄該題題目開頭約 5~10 個字**，方便老師對照。
 6. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題。
 7. **強制換行**：每一個項目都必須是獨立的 Bullet Point。
 
