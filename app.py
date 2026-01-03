@@ -38,31 +38,44 @@ morandi_css = """
         margin-bottom: 20px;
     }
 
-    /* [修正點 2] 正方形大按鈕樣式優化 */
+/* [修改區塊] 按鈕樣式：簡約細框 + 灰白陰影 + 無填滿 */
     div.stButton > button {
-        background-color: #8DA399; 
-        color: white; 
-        border-radius: 12px; /* 圓角 */
-        border: none; 
+        background-color: #FFFFFF !important;      /* 內部留白 (無填滿) */
+        color: #5B7C99 !important;                 /* 文字顏色 (莫蘭迪藍灰) */
+        border: 1px solid #E0E0E0 !important;      /* 極細灰框線 */
+        border-radius: 15px;                       /* 較圓潤的邊角 */
+        
+        /* 核心設計：灰白陰影 (創造浮起感) */
+        box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.05), -4px -4px 10px #FFFFFF !important;
+        
+        /* 排版與尺寸設定 */
         padding: 0px;
         font-weight: bold;
         font-size: 1.3rem; 
-        height: 120px !important;  /* 強制高度 */
-        width: 100% !important;    /* 填滿欄位 */
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        height: 120px !important;  /* 保持正方形/大按鈕高度 */
+        width: 100% !important;
+        
+        /* 動畫過渡 */
         transition: all 0.3s ease;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        white-space: pre-wrap; /* 允許文字換行 */
+        white-space: pre-wrap;
     }
-    div.stButton > button:hover { 
-        background-color: #6E8B7F; 
-        color: white; 
-        transform: translateY(-2px);
-        box-shadow: 0 6px 10px rgba(0,0,0,0.2);
+
+    /* 滑鼠懸停效果 (Hover) */
+    div.stButton > button:hover {
+        background-color: #FDFDFD !important;      /* 懸停時維持亮白 */
+        color: #8DA399 !important;                 /* 文字變色 (莫蘭迪綠) */
+        border: 1px solid #8DA399 !important;      /* 框線變色 */
+        transform: translateY(-3px);               /* 向上浮起 */
+        
+        /* 陰影加深，增強立體感 */
+        box-shadow: 6px 6px 15px rgba(0, 0, 0, 0.1), -4px -4px 12px #FFFFFF !important;
     }
+    
+    /* [修改結束] */
     
     /* 資訊看板樣式放大 */
     .dashboard-card {
