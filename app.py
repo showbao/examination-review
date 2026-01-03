@@ -382,7 +382,7 @@ else:
 
 # --- 介面佈局：上傳區 (單欄流式排版) ---
 # [修改 1] 移除分欄，改為直式排列
-st.subheader("1️⃣ 上傳試卷 (必選)")
+st.subheader("1️⃣ 上傳試卷 ")
 exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
 # --- 按鈕區 (位於上傳區正下方) ---
