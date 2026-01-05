@@ -236,6 +236,13 @@ def create_word_report(analysis_text, metadata):
 
     doc.add_paragraph() # 空行分隔
 
+    # [新增] 系統免責聲明 (Word版)
+    warning_text = "⚠️ 系統限制與聲明：本系統僅針對試題內容進行深度分析，未檢核「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。"
+    p_warn = doc.add_paragraph()
+    run_warn = p_warn.add_run(warning_text)
+    set_font_style(run_warn, size=11, bold=True, color=RGBColor(255, 0, 0)) # 紅色粗體提醒
+    doc.add_paragraph() # 再空一行
+    
     # --- 內容解析 (強力標題抓取版) ---
     lines = analysis_text.split('\n')
     table_mode = False
@@ -663,6 +670,7 @@ if start_btn:
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
+    st.warning("⚠️ **系統限制與聲明**：本系統僅針對試題內容進行深度分析，**未檢核**「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。")
     # [修正] 確保分隔線位於藍色方框之外
     if "## 題幹與邏輯品質" in st.session_state.analysis_result:
         summary_part, body_part = st.session_state.analysis_result.split("## 題幹與邏輯品質", 1)
