@@ -38,7 +38,7 @@ morandi_css = """
         margin-bottom: 20px;
     }
 
-/* [修改區塊] 按鈕樣式：簡約細框 + 自適應大小 (非正方形) */
+    /* 按鈕樣式：簡約細框 + 自適應大小 */
     div.stButton > button {
         background-color: #FFFFFF !important;      /* 內部留白 (無填滿) */
         color: #5B7C99 !important;                 /* 文字顏色 (莫蘭迪藍灰) */
@@ -48,14 +48,14 @@ morandi_css = """
         /* 核心設計：灰白陰影 (創造浮起感) */
         box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.05), -2px -2px 6px #FFFFFF !important;
         
-        /* [修改點] 改為自適應大小 */
-        height: auto !important;    /* 高度自動，不再強制 120px */
-        width: auto !important;     /* 寬度自動，包住文字即可 */
-        padding: 10px 25px !important; /* 內距：讓文字周圍留有舒適空間 */
-        margin-top: 10px;           /* 稍微與上方拉開距離 */
+        /* 改為自適應大小 */
+        height: auto !important;
+        width: auto !important;
+        padding: 10px 25px !important;
+        margin-top: 10px;
         
         font-weight: bold;
-        font-size: 1.1rem;          /* 字體稍微縮回標準大小 */
+        font-size: 1.1rem;
         
         /* 動畫過渡 */
         transition: all 0.3s ease;
@@ -93,7 +93,6 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 # ==========================================
 
 # --- 進階功能開關 ---
-# 若要顯示「系統狀態、課本上傳、單元編輯、AI模型手動選擇」，請將此變數改為 True
 ENABLE_ADVANCED_FEATURES = False 
 
 # ==========================================
@@ -208,7 +207,8 @@ def create_word_report(analysis_text, metadata):
     
     for item_text in checkbox_items:
         p_check = cell.add_paragraph()
-        p_check.paragraph_format.line_spacing = 1.5
+        # [修改點 6] 行距調整為 2.0
+        p_check.paragraph_format.line_spacing = 2.0 
         
         # 獨立渲染大方框
         run_box = p_check.add_run("□ ")
@@ -221,12 +221,14 @@ def create_word_report(analysis_text, metadata):
     # 新增「其他說明」與留白
     p_other = cell.add_paragraph("其他說明：")
     set_font_style(p_other.runs[0] if p_other.runs else p_other.add_run("其他說明："), size=12)
+    # [修改點 6] 行距調整為 2.0
     p_other.paragraph_format.line_spacing = 1.5
     
     # 預留 5 行空行供手寫
     for _ in range(5):
         p_empty = cell.add_paragraph()
-        p_empty.paragraph_format.line_spacing = 1.5
+        # [修改點 6] 行距調整為 2.0
+        p_empty.paragraph_format.line_spacing = 2.0
 
     doc.add_paragraph() # 空行分隔
 
@@ -331,8 +333,30 @@ def _render_word_table(doc, data):
                     for run in p.runs:
                         run.font.bold = True
 
+def clean_ai_hallucinations(text):
+    """
+    針對 Flash 模型進行強制清洗：
+    如果 AI 違背指令輸出了「無」的區塊，用程式碼強制移除該段落。
+    """
+    # 1. 清除「形式錯誤」下方只有「無」的情況
+    pattern_red = r"###\s*🔴\s*形式錯誤\s*\n+[\s\*\-]*[無None]+[。]*\s*\n?"
+    text = re.sub(pattern_red, "", text)
+
+    # 2. 清除「無法判定」下方只有「無」的情況
+    pattern_yellow = r"###\s*🟡\s*無法判定\s*\n+[\s\*\-]*[無None]+[。]*\s*\n?"
+    text = re.sub(pattern_yellow, "", text)
+    
+    # 3. 清除「最優先修正」下方只有「無」的情況
+    pattern_critical = r"###\s*🔴\s*最優先修正.*?\n+[\s\*\-]*[無None]+.*?[。]*\s*\n?"
+    text = re.sub(pattern_critical, "", text)
+
+    # 4. 移除多餘的連續空行
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
+
 # ==========================================
-# 2. 登入與介面
+# 3. 登入與介面
 # ==========================================
 def render_footer():
     st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
@@ -381,17 +405,14 @@ else:
     st.stop()
 
 # --- 介面佈局：上傳區 (單欄流式排版) ---
-# [修改 1] 移除分欄，改為直式排列
-st.subheader("1️⃣ 上傳試卷 ")
+st.subheader("⭐ 上傳試卷 ")
 exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
 # --- 按鈕區 (位於上傳區正下方) ---
-# [修改 2] 按鈕直接緊接在上傳區下方
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
 start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
 
 # --- 進階功能區 (預設隱藏) ---
-# 初始化變數 (避免未開啟時報錯)
 context_files = None
 unit_list = []
 manual_model = "Gemini 3.0 Flash"
@@ -476,13 +497,12 @@ if start_btn:
                 else: 
                     target_model_name = get_best_flash_model(api_key)
             else:
-                # [修正點 1] 強制全線使用 Flash，但保留邏輯結構方便未來切換
+                # [修正點 1] 強制全線使用 Flash
                 if context_files:
                     target_model_name = get_best_flash_model(api_key)
                     routing_msg = "📚 偵測到參考教材，啟用快速分析模式"
                 elif is_science:
-                    # target_model_name = get_best_pro_model(api_key)  <-- 原本邏輯 (暫時停用)
-                    target_model_name = get_best_flash_model(api_key) # <-- 強制使用 Flash
+                    target_model_name = get_best_flash_model(api_key)
                     routing_msg = "📐 理科試卷分析 (強制啟用 Flash 模式)"
                 else:
                     target_model_name = get_best_flash_model(api_key)
@@ -516,10 +536,10 @@ if start_btn:
             st.session_state.metadata = metadata
 
             # ----------------------------------------------------
-            # Phase 2: 深度審查 (Updated Prompt v5.4 - Flash Optimized)
+            # Phase 2: 深度審查 (Updated Prompt v5.5 - Final Fix)
             # ----------------------------------------------------
             
-            # [修正點 3] 設定生成參數：Temperature = 0 (強制理性，降低幻覺)
+            # 設定生成參數：Temperature = 0 (強制理性)
             generation_config = {
                 "temperature": 0.0,
                 "top_p": 1.0,
@@ -579,17 +599,14 @@ if start_btn:
 2. **在地化教學標準**：針對讀音、定義或格式，以台灣國小教學現場慣例為準。
 
 **【排版與精準度憲法】：**
-1. **嚴禁開場白**。
-2. **禁止頁碼**：題目敘述中**嚴禁提及**「第x頁」。
-3. **精準對應題號**：嚴禁編造題號。
+1. 嚴禁開場白。
+2. 禁止頁碼，精準對應題號。
+3. 強制換行。
 4. **題號格式統一**：請務必使用「**大題-小題**」格式 (例如：**二-7**、**三-1**)，嚴禁使用「題二-第7題」這種冗贅寫法。
-5. **題目錨點 (關鍵)**：在Step 1 ~ Step 3列出每一題時，**務必於題號後方，括號摘錄該題題目開頭約 5~7 個字**，方便老師對照。
-6. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題。
-7. **強制換行**：每一個項目都必須是獨立的 Bullet Point。
+5. **題目錨點**：務必於題號後方，括號摘錄該題題目開頭約 5~7 個字。
+6. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題(優良試題、真素養因排版關係，若超過 5 點請擇優列出)。
 
 請嚴格依照以下順序輸出 Markdown 報告：
-
----
 
 ## 總結與建議
 * **請分組**：
@@ -600,13 +617,7 @@ if start_btn:
 
 ## Step 1: 命題範圍與形式檢查
 **1. 形式審查 (Logic Check - Mutually Exclusive)**：
-* **執行策略**：由於排版複雜，請勿逐題點數。請改為讀取各大題的「文字說明」來進行驗證。
-* **檢查步驟**：
-    1.  **排版識別**：簡單描述是直書/橫書、單欄/雙欄/上下欄。
-    2.  **大題配分抓取**：請找出試卷中各大題的標題（例如：「一、選擇題」、「二、填充題」），讀取其後方的配分說明（例如：「每題2分，共20分」）。
-    3.  **總分估算**：將你抓取到的「各大題總分說明」相加，確認是否為 100 分。
-    4.  **跳號抽查**：請只檢查「危險區域」的連號狀況（例如：左欄最後一題 vs 右欄第一題；或是第一頁最後一題 vs 第二頁第一題），確認是否有明顯斷層。
-    
+* **(隱藏思維，請勿輸出)**：請在後台執行以下檢查：排版識別、大題配分加總、題號連貫性。
 * **輸出指令**：請依據檢查結果，**從下列三種情況中「擇一」輸出**，嚴禁同時輸出多個標題：
     * **情況 A (總分=100 且 題號無誤)**：
         ### 🟢 形式合規
@@ -621,8 +632,8 @@ if start_btn:
 
 ## Step 2: 題幹與邏輯品質
 * **請分組**：
-    * ### 🟢 優良試題 (若超過5題，請擇優列出5題並註明「(其餘略)...」)
-    * ### 🟡 待確認試題 (包含誘答力不足、邏輯瑕疵)
+    ### 🟢 優良試題 (嚴格限制：若超過5題，請僅列出最具代表性的5題，並在最後一行加上『(其餘優良試題略)...』)
+    ### 🟡 待確認試題 (包含誘答力不足、邏輯瑕疵)
     
 * **⚠️ 強制豁免守則**：
     * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」或「選出錯誤選項」，視為 **🟢 優良試題**。
@@ -630,34 +641,27 @@ if start_btn:
 ## Step 3: 素養導向深度審查
 **依據標準執行剝皮測試：**
 {LITERACY_STANDARDS}
-* **請分組**：### 🟢 真素養 (若超過5題，請擇優列出5題並註明「(其餘略)...」) 、 ### 🟡 假素養/待確認。
+* **請分組**：
+    ### 🟢 真素養 (嚴格限制：若超過5題，請僅列出最具代表性的5題，並在最後一行加上『(其餘優良試題略)...』)
+    ### 🟡 假素養/待確認
 
 ## Step 4: 公平性與敏感度審查
 * **請分組**：
-    * ### 🟢 通過 (無敏感議題)
-    * ### 🟡 潛在爭議 (具體指出問題)
+    ### 🟢 通過 (無敏感議題)
+    ### 🟡 潛在爭議 (具體指出問題)
 
 ## Step 5: 雙向細目表核算
 **指定單元範圍：** {units_str}
 **上傳課本狀態：** {"已上傳" if context_files else "未上傳"} 
 
-* **情況 A (已上傳課本 且 有提供單元名稱)：** 製作標準雙向細目表。
-    * 建立二維表格：直欄為單元名稱，橫列為認知向度。
-    * **統計：** 計算百分比重，確認總計 100%。
-
-* **情況 B (未上傳課本 或 無提供單元名稱)：** 製作向度分析表。
-    * **表格排版嚴格規定**：
-    * 第一欄標題為「認知歷程向度」，且內容**只能**填寫「知識、理解、應用、分析、綜合、評鑑」這六個詞，**嚴禁**填寫題號或題型。
-    * 第二欄標題為「對應題號」，請在此欄填寫題號與題型（如：是非 1, 3, 5）。
-    * 第三欄標題為「佔比」。
-    * **統計：** 務必計算百分比重，總和需為 100%。
+* **情況 A (已上傳課本)：** 製作標準雙向細目表。
+* **情況 B (未上傳課本)：** 製作向度分析表。
+    * **統計：** 務必計算百分比重，總和需為 100% (請自動微調數據以確保總和精確為100%)。
 
 ## Step 6: 難易度與負擔分析
 * **表格排版嚴格規定**：
 * 製作一個表格，欄位依序為：難易度(易/中/難) | 佔比 | 對應題號/說明。
-* **嚴禁**在第一欄填寫長篇大論，第一欄只能填「易、中、難」。
 
----
 """
             if context_files: prompt_parts.append("【參考教材】：")
             prompt_parts.append(base_prompt)
@@ -666,7 +670,7 @@ if start_btn:
             
             progress_bar.progress(60)
             
-            # [修正點 3] 帶入 generation_config 以鎖定 Temperature
+            # 帶入 generation_config
             response = main_model.generate_content(
                 prompt_parts,
                 generation_config=generation_config
@@ -674,11 +678,15 @@ if start_btn:
             
             progress_bar.progress(100)
             
-            cleaned_text = response.text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+            # 1. 先處理換行
+            raw_text = response.text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+            
+            # 2. 呼叫清洗函式
+            final_cleaned_text = clean_ai_hallucinations(raw_text)
             
             status_box.success(f"✅ 分析完成！")
             
-            st.session_state.analysis_result = cleaned_text
+            st.session_state.analysis_result = final_cleaned_text
             st.session_state.used_model_name = target_model_name
             
         except Exception as e:
@@ -687,19 +695,20 @@ if start_btn:
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
-    # 網頁版：將總結與建議區塊獨立渲染 (UI Separation)
-    # 嘗試切割 "## Step 1" 來分離總結與正文
+    # [修改點 1] 確保分隔線位於藍色方框之外
     if "## Step 1" in st.session_state.analysis_result:
         summary_part, body_part = st.session_state.analysis_result.split("## Step 1", 1)
-        body_part = "## Step 1" + body_part # 補回 Step 1 標題
+        body_part = "## Step 1" + body_part 
         
-        # 1. 渲染上方總結區 (使用 st.info 藍色區塊)
-        st.info(summary_part.replace("## 總結與建議", "### 📊 總結與建議")) 
+        # 1. 渲染上方總結區 (藍色區塊)
+        st.info(summary_part.replace("## 總結與建議", "### 📊 總結與建議"))
         
-        # 2. 渲染下方正文區
+        # 2. 渲染分隔線 (在區塊外)
+        st.markdown("---")
+        
+        # 3. 渲染下方正文區
         st.markdown(body_part)
     else:
-        # 如果格式不如預期，則回退到標準渲染
         st.markdown("## 📊 審查報告")
         st.markdown(st.session_state.analysis_result)
     
