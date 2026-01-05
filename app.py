@@ -663,18 +663,13 @@ if start_btn:
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
-    # [修改點 1] 確保分隔線位於藍色方框之外
-    # 改為切割 "## 題幹與邏輯品質"
-if "## 題幹與邏輯品質" in st.session_state.analysis_result:
+    # [修正] 確保分隔線位於藍色方框之外
+    if "## 題幹與邏輯品質" in st.session_state.analysis_result:
         summary_part, body_part = st.session_state.analysis_result.split("## 題幹與邏輯品質", 1)
         body_part = "## 題幹與邏輯品質" + body_part 
         
-        # =========== 修正 2 重點開始 ===========
-        # 利用正規表示法 (Regex) 清洗字串
-        # 說明：如果發現每一行的開頭是 "* ###" 或 "- ###"，就把它強制換成單純的 "###"
-        # 這樣 Streamlit 就不會因為語法衝突而顯示原始碼亂碼
+        # [修正] 強制清洗 Markdown 語法衝突 (移除標題前的 * 或 -)
         summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
-        # =========== 修正 2 重點結束 ===========
 
         # 1. 渲染上方總結區 (藍色區塊)
         st.info(summary_part.replace("## 總結與建議", "### 📊 總結與建議"))
@@ -685,6 +680,7 @@ if "## 題幹與邏輯品質" in st.session_state.analysis_result:
         # 3. 渲染下方正文區
         st.markdown(body_part)
     else:
+        # 若沒有偵測到特定標題，則顯示原始內容
         st.markdown("## 📊 審查報告")
         st.markdown(st.session_state.analysis_result)
     
