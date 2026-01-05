@@ -139,13 +139,22 @@ def set_font_style(run, size=12, bold=False, color=None):
         run.font.color.rgb = color
 
 def clean_markdown_symbol(text):
+    """
+    清洗 Markdown 符號，確保 Word 輸出純淨文字
+    """
     text = text.replace("**", "").replace("__", "")
     text = text.replace("<br>", "").replace("<br/>", "").replace("<br />", "")
-    # 移除可能導致誤判的列表符號 (僅移除開頭的 * 或 - )
+    
+    # [修正] 務必移除 Markdown 標題符號 (#)，否則 Word 會出現 ###
+    text = re.sub(r'#+\s*', '', text) 
+    
+    # 移除開頭的列表符號 (* 或 -) 避免干擾
     text = re.sub(r'^[\*\-]\s+', '', text)
+    
+    # 移除燈號 (避免標題重複顯示圖示，若希望保留圖示可註解掉此行)
     for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️"]:
         text = text.replace(icon, "")
-    text = text.lstrip("*- ")
+        
     return text.strip()
 
 def create_word_report(analysis_text, metadata):
@@ -233,80 +242,73 @@ def create_word_report(analysis_text, metadata):
 
     doc.add_paragraph() # 空行分隔
 
-    # --- 內容解析 ---
+# --- 內容解析 (新版邏輯) ---
     lines = analysis_text.split('\n')
     table_mode = False
     table_data = []
-
-    FORCE_HEADER_KEYWORDS = ["最優先修正", "難度與鑑別度", "值得讚許", "後續優化", "總結與建議"]
 
     for line in lines:
         line = line.strip()
         if not line: continue
 
-        is_force_header = any(k in line for k in FORCE_HEADER_KEYWORDS)
-        is_status_header = ("##" in line) and any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡", "📊", "⚖️"])
-        should_be_h3 = is_status_header or is_force_header
+        # 1. 預先清洗：移除開頭的 * 或 - 以便偵測真正內容
+        # 這樣即使 AI 輸出 "* ### 🟢" 也能被正確識別
+        clean_line_check = re.sub(r'^[\*\-]\s+', '', line)
 
-        if line.startswith("## ") and not any(x in line for x in ["🟢", "🔴", "🟡", "👍", "💡", "📊", "⚖️"]) and not is_force_header:
-            if table_mode and table_data:
-                _render_word_table(doc, table_data)
-                table_mode = False
-                table_data = []
-            clean_text = clean_markdown_symbol(line)
-            p = doc.add_paragraph()
-            run = p.add_run(clean_text)
-            set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153)) 
+        # 2. 強制標題判定 (寬鬆模式)
+        # 只要有「燈號」 OR 「雙井號」 OR 「特定關鍵字」，一律視為標題
+        has_icon = any(x in clean_line_check for x in ["🟢", "🔴", "🟡", "👍", "💡", "📊", "⚖️"])
+        has_hash = "##" in clean_line_check
+        is_force_header = any(k in clean_line_check for k in ["最優先修正", "難度與鑑別度", "值得讚許", "後續優化", "總結與建議"])
         
-        elif should_be_h3:
+        # 只要滿足任一條件，就是標題
+        is_header = has_icon or has_hash or is_force_header
+
+        # H2/H3 大標題邏輯
+        if is_header:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
-            is_green = "🟢" in line or "優良" in line or "真素養" in line or "形式合規" in line or "通過" in line or "值得讚許" in line
-            is_red = "🔴" in line or "待改善" in line or "假素養" in line or "形式錯誤" in line or "優先修正" in line
-            is_yellow = "🟡" in line or "建議" in line or "待確認" in line or "潛在爭議" in line
+            # 取得乾淨文字 (無 #, *, 燈號)
+            final_text = clean_markdown_symbol(line)
             
-            clean_text = clean_markdown_symbol(line)
             p = doc.add_paragraph()
-            run = p.add_run(clean_text)
+            run = p.add_run(final_text)
             
-            if is_force_header and not (is_green or is_red or is_yellow):
-                 set_font_style(run, size=13, bold=True)
-            elif is_green: set_font_style(run, size=13, bold=True, color=RGBColor(0, 100, 0))
-            elif is_red: set_font_style(run, size=13, bold=True, color=RGBColor(200, 0, 0))
-            elif is_yellow: set_font_style(run, size=13, bold=True, color=RGBColor(204, 153, 0))
-            else: set_font_style(run, size=13, bold=True)
+            # 依據燈號給予樣式 (強制大字體)
+            if "🟢" in line or "優良" in line or "真素養" in line or "合規" in line:
+                set_font_style(run, size=14, bold=True, color=RGBColor(0, 100, 0)) # 深綠
+            elif "🔴" in line or "待改善" in line or "錯誤" in line or "優先" in line:
+                set_font_style(run, size=14, bold=True, color=RGBColor(200, 0, 0)) # 深紅
+            elif "🟡" in line or "待確認" in line or "無法" in line:
+                set_font_style(run, size=14, bold=True, color=RGBColor(204, 153, 0)) # 深黃
+            else:
+                # 普通大標題 (如 Step 1, 總結)
+                set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153)) # 莫蘭迪藍
 
+        # 表格處理
         elif line.startswith("|"):
             table_mode = True
             if "---" in line: continue
             row_cells = [clean_markdown_symbol(c) for c in line.split("|") if c.strip()]
             table_data.append(row_cells)
             
-        elif line.startswith("*") or line.startswith("-"):
-            if table_mode and table_data:
-                _render_word_table(doc, table_data)
-                table_mode = False
-                table_data = []
-            
-            if not should_be_h3:
-                clean_text = clean_markdown_symbol(line)
-                if not clean_text: continue
-                p = doc.add_paragraph(style='List Bullet')
-                run = p.add_run(clean_text)
-                set_font_style(run, size=12)
-            
+        # 一般內文列表
         else:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
+            
             clean_text = clean_markdown_symbol(line)
             if not clean_text: continue 
-            p = doc.add_paragraph(clean_text)
-            set_font_style(p.runs[0] if p.runs else p.add_run(clean_text), size=12)
+            
+            # 強制轉為列表樣式 (List Bullet)，字體較小
+            p = doc.add_paragraph(style='List Bullet')
+            run = p.add_run(clean_text)
+            set_font_style(run, size=12)
 
     if table_mode and table_data:
         _render_word_table(doc, table_data)
