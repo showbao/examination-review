@@ -662,7 +662,6 @@ if start_btn:
             if "429" in str(e): st.warning("💡 提示：目前 AI 忙線中，請稍後再試。")
 
 # --- 結果顯示與 Word 生成 ---
-# --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
     # [修正] 確保分隔線位於藍色方框之外
     if "## 題幹與邏輯品質" in st.session_state.analysis_result:
