@@ -233,15 +233,16 @@ def create_word_report(analysis_text, metadata):
     for _ in range(5):
         p_empty = cell.add_paragraph()
         p_empty.paragraph_format.line_spacing = 2.0
-
-    doc.add_page_break()
+    
+    doc.add_paragraph() # 再空一行
 
     # [新增] 系統免責聲明 (Word版)
     warning_text = "⚠️ 系統限制與聲明：本系統僅針對試題內容進行深度分析，未檢核「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。"
     p_warn = doc.add_paragraph()
     run_warn = p_warn.add_run(warning_text)
     set_font_style(run_warn, size=11, bold=True, color=RGBColor(255, 0, 0)) # 紅色粗體提醒
-    doc.add_paragraph() # 再空一行
+    
+    doc.add_page_break()
     
     # --- 內容解析 (強力標題抓取版) ---
     lines = analysis_text.split('\n')
@@ -339,6 +340,11 @@ def clean_ai_hallucinations(text):
     # 1. [修正] 移除題型標題 (如：一、判斷題) 讓列表更乾淨
     text = re.sub(r'^\s*[一二三四五六七八九十0-9]+[、\.][\u4e00-\u9fa5]+\s*$', '', text, flags=re.MULTILINE)
 
+    # 2. [新增] 強制題目換行 (針對擠成一團的文字)
+    # 匹配模式：(句號或分號) + (空白) + (中文數字或數字-數字)
+    # 效果：將 "...。 二-1" 轉換為 "...。\n* 二-1"
+    text = re.sub(r'([。；：])\s*([一二三四五六七八九十\d]+-[\d]+)', r'\1\n* \2', text)
+    
     # 2. [修正] 強制截斷列表 (Top 5 限制)
     def truncate_list(match):
         header = match.group(1) # 標題
@@ -411,12 +417,12 @@ else:
     st.stop()
 
 # --- 介面佈局：上傳區 (單欄流式排版) ---
-st.subheader("1️⃣ 上傳試卷 ")
+st.subheader(" 上傳試卷 ")
 exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
 # --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
-start_btn = st.button("2️⃣ 開始\n全方位審查", type="primary", use_container_width=True)
+start_btn = st.button(" 開始\n全方位審查", type="primary", use_container_width=True)
 
 # --- 進階功能區 (預設隱藏) ---
 context_files = None
@@ -610,20 +616,20 @@ if start_btn:
      ### 💡 後續優化建議 : (錦上添花的建議)
 
 ## 題幹與邏輯品質
-    ### 🟢 優良試題
-    ### 🟡 待確認試題 (包含誘答力不足、邏輯瑕疵)
+    ### 🟢 優良試題(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
+    ### 🟡 待確認試題 (包含誘答力不足、邏輯瑕疵， **強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
     
 * **⚠️ 強制豁免守則**：
     * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」或「選出錯誤選項」，視為 **🟢 優良試題**。
 
 ## 素養導向深度審查
 {LITERACY_STANDARDS}
-    ### 🟢 真素養
-    ### 🟡 假素養/待確認
+    ### 🟢 真素養(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
+    ### 🟡 假素養/待確認(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
 
 ## 公平性與敏感度審查
-    ### 🟢 通過 (無敏感議題)
-    ### 🟡 潛在爭議 (具體指出問題)
+    ### 🟢 通過 (無敏感議題)(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
+    ### 🟡 潛在爭議 (具體指出問題)(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
 
 ## 雙向細目表核算
 * **表格排版嚴格規定**：
