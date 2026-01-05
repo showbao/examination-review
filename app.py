@@ -234,7 +234,7 @@ def create_word_report(analysis_text, metadata):
         p_empty = cell.add_paragraph()
         p_empty.paragraph_format.line_spacing = 2.0
 
-    doc.add_paragraph() # 空行分隔
+    doc.add_page_break()
 
     # [新增] 系統免責聲明 (Word版)
     warning_text = "⚠️ 系統限制與聲明：本系統僅針對試題內容進行深度分析，未檢核「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。"
@@ -679,6 +679,10 @@ if st.session_state.analysis_result:
         # [修正 1] 強制清洗 Markdown 語法衝突 (防止出現 * ###)
         summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
 
+        # [修正 3 - 新增] 移除藍色方框內末端的多餘分隔線
+        # 說明：刪除 summary_part 結尾處可能存在的 "---" 符號
+        summary_part = re.sub(r'\n\s*---\s*$', '', summary_part).strip()
+        
         # [修正 2] 介面調整：
         # 移除原本的 .replace("##", "### 📊")，改為直接輸出 summary_part
         # 這樣就會顯示原本的 "## 總結與建議" (無圖示、大字體 H2)
