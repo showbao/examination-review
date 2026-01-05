@@ -246,6 +246,7 @@ def create_word_report(analysis_text, metadata):
         if not line: continue
 
         # 1. 預先清洗：移除開頭的 * 或 - 以便偵測真正內容
+        # 這樣即使 AI 輸出 "* ### 🟢" 也能被正確識別
         clean_line_check = re.sub(r'^[\*\-]\s+', '', line)
 
         # 2. 強制標題判定 (寬鬆模式)
@@ -253,6 +254,7 @@ def create_word_report(analysis_text, metadata):
         has_hash = "##" in clean_line_check
         is_force_header = any(k in clean_line_check for k in ["最優先修正", "難度與鑑別度", "值得讚許", "後續優化", "總結與建議"])
         
+        # 只要滿足任一條件，就是標題
         is_header = has_icon or has_hash or is_force_header
 
         # H2/H3 大標題邏輯
@@ -327,22 +329,10 @@ def clean_ai_hallucinations(text):
     """
     針對 Flash 模型進行強制清洗與格式微調 (Post-Processing)
     """
-    # 1. 清除空泛的標題內容 (如: 形式錯誤...無)
-    pattern_red = r"###\s*🔴\s*形式錯誤\s*\n+[\s\*\-]*[無None]+[。]*\s*\n?"
-    text = re.sub(pattern_red, "", text)
-
-    pattern_yellow = r"###\s*🟡\s*無法判定\s*\n+[\s\*\-]*[無None]+[。]*\s*\n?"
-    text = re.sub(pattern_yellow, "", text)
-    
-    pattern_critical = r"###\s*🔴\s*最優先修正.*?\n+[\s\*\-]*[無None]+.*?[。]*\s*\n?"
-    text = re.sub(pattern_critical, "", text)
-
-    # 2. [修正] 移除大題標題 (如：一、判斷題) 讓列表更乾淨
-    # 邏輯：移除只有「數字/中文數字 + 頓號/點 + 題型名稱」的行
+    # 1. [修正] 移除題型標題 (如：一、判斷題) 讓列表更乾淨
     text = re.sub(r'^\s*[一二三四五六七八九十0-9]+[、\.][\u4e00-\u9fa5]+\s*$', '', text, flags=re.MULTILINE)
 
-    # 3. [修正] 強制截斷列表 (Top 5 限制)
-    # 針對「優良試題」與「真素養」這兩個區塊進行處理
+    # 2. [修正] 強制截斷列表 (Top 5 限制)
     def truncate_list(match):
         header = match.group(1) # 標題
         content = match.group(2) # 內容列表
@@ -352,14 +342,14 @@ def clean_ai_hallucinations(text):
         if len(lines) > 5:
             new_content = "\n".join(lines[:5]) + "\n* (其餘優良試題略)..."
             return f"{header}\n{new_content}\n"
-        return match.group(0) # 若沒超過則不變
+        return match.group(0)
 
     # 針對綠燈優良試題
     text = re.sub(r'(###\s*🟢\s*優良試題.*?)((\n\s*[\*\-].*?)+)(?=\n###)', truncate_list, text, flags=re.DOTALL)
     # 針對真素養
     text = re.sub(r'(###\s*🟢\s*真素養.*?)((\n\s*[\*\-].*?)+)(?=\n###)', truncate_list, text, flags=re.DOTALL)
 
-    # 4. 移除多餘的連續空行
+    # 3. 移除多餘的連續空行
     text = re.sub(r'\n{3,}', '\n\n', text)
     
     return text.strip()
@@ -413,14 +403,15 @@ else:
     st.error("請設定 Secrets: GEMINI_API_KEY")
     st.stop()
 
-# --- 介面佈局 ---
+# --- 介面佈局：上傳區 (單欄流式排版) ---
 st.subheader("1️⃣ 上傳試卷 ")
 exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
+# --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
 start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
 
-# --- 進階功能區 ---
+# --- 進階功能區 (預設隱藏) ---
 context_files = None
 unit_list = []
 manual_model = "Gemini 3.0 Flash"
@@ -428,10 +419,38 @@ model_mode = "智慧分流"
 
 if ENABLE_ADVANCED_FEATURES:
     st.markdown("---")
-    st.markdown("#### ⚙️ 進階設定")
-    # (此處省略進階設定的 UI 代碼，因預設為 False)
+    st.markdown("#### ⚙️ 進階設定 (系統狀態、教材、單元、模型)")
+    
+    st.markdown("""
+    <div class="dashboard-card">
+        <b>⚪ 系統狀態：</b>待命中... 請上傳試卷<br>
+        <small>啟用檔名路由：檔名含「數/理/化/生」➔ Pro | 其餘 ➔ Flash</small>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    with st.expander("📂 參考教材與單元設定", expanded=False):
+        col_adv_1, col_adv_2 = st.columns(2)
+        with col_adv_1:
+            st.markdown("**上傳課本、習作 (可選)**")
+            context_files = st.file_uploader("拖曳參考教材", type=["pdf"], accept_multiple_files=True, key="context_uploader")
+        with col_adv_2:
+            st.markdown("**雙向細目表單元設定**")
+            if context_files:
+                unit_count = st.number_input("單元數量", min_value=1, max_value=10, value=3)
+                cols = st.columns(unit_count)
+                for i in range(unit_count):
+                    with cols[i]:
+                        u_name = st.text_input(f"單元 {i+1}", key=f"unit_{i}")
+                        if u_name: unit_list.append(u_name)
+            else:
+                st.info("💡 請先上傳教材以啟用單元編輯")
 
-# --- 審查標準 ---
+    with st.expander("🧠 AI 模型核心設定", expanded=False):
+        model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
+        if model_mode == "手動指定":
+            manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"], label_visibility="collapsed")
+
+# --- 審查標準 (隱藏) ---
 LITERACY_STANDARDS = """
 檢核標準：試著將題目中的「情境敘述」（故事、圖片、前言）移除。
 判定：如果移除情境後，學生依然可以直接作答（變成單純的背誦或計算），即判定為「❌ 假素養（裝飾性情境）」。真正的情境必須是解題的必要條件。
@@ -455,23 +474,42 @@ if start_btn:
         progress_bar = st.progress(0)
         
         try:
-            # Phase 1: 智慧分流路由
+            # ----------------------------------------------------
+            # Phase 1: 智慧分流路由 (Smart Routing)
+            # ----------------------------------------------------
             filename = exam_file.name
             status_box.info(f"🔍 正在解析試卷資訊... (檔名：{filename})")
             progress_bar.progress(10)
 
+            # 1. 判斷科目屬性
             is_science = False
             if any(k in filename for k in ["數學", "自然", "理化", "物理", "化學", "生物"]):
                 is_science = True
             
+            # 2. 決定模型 (核心路由邏輯)
             target_model_name = ""
-            if context_files: target_model_name = get_best_flash_model(api_key)
-            elif is_science: target_model_name = get_best_flash_model(api_key)
-            else: target_model_name = get_best_flash_model(api_key)
+            routing_msg = ""
 
-            status_box.info(f"🔄 Phase 2: AI 深度審查中...")
+            if model_mode == "手動指定" and ENABLE_ADVANCED_FEATURES:
+                if "Pro" in manual_model: 
+                    target_model_name = get_best_pro_model(api_key)
+                else: 
+                    target_model_name = get_best_flash_model(api_key)
+            else:
+                # [修正點 1] 強制全線使用 Flash
+                if context_files:
+                    target_model_name = get_best_flash_model(api_key)
+                    routing_msg = "📚 偵測到參考教材，啟用快速分析模式"
+                elif is_science:
+                    target_model_name = get_best_flash_model(api_key)
+                    routing_msg = "📐 理科試卷分析 (強制啟用 Flash 模式)"
+                else:
+                    target_model_name = get_best_flash_model(api_key)
+                    routing_msg = "📝 文科試卷分析 (啟用標準模式)"
 
-            # Metadata 提取
+            status_box.info(f"🔄 Phase 2: {routing_msg}...")
+
+            # 3. 資訊提取 (Metadata)
             flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
             exam_ref = upload_to_gemini(exam_file)
             
@@ -496,7 +534,11 @@ if start_btn:
                 metadata = {"year":"", "semester":"", "grade":"", "subject":"", "exam_type":""}
             st.session_state.metadata = metadata
 
-            # Phase 2: 深度審查 Prompt
+            # ----------------------------------------------------
+            # Phase 2: 深度審查 (Updated Prompt v5.6 - Final Refined)
+            # ----------------------------------------------------
+            
+            # 設定生成參數：Temperature = 0 (強制理性)
             generation_config = {
                 "temperature": 0.0,
                 "top_p": 1.0,
@@ -512,6 +554,9 @@ if start_btn:
             units_str = ", ".join(unit_list) if unit_list else "未提供"
 
             base_prompt = f"""
+你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
+目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
+
 **【台灣試卷三大排版閱讀協定 (Taiwan Exam Layout Protocol)】：**
 請先掃描整份試卷的幾何結構，並嚴格依照下列 **3 種模式** 擇一執行閱讀：
 
@@ -557,42 +602,23 @@ if start_btn:
     * ### 👍 值得讚許之處 : (列出試卷優點，若超過 5 點請擇優列出)
     * ### 💡 後續優化建議 : (錦上添花的建議)
 
-## Step 1: 命題範圍與形式檢查
-**1. 形式審查 (Logic Check - Mutually Exclusive)**：
-* **(隱藏思維，請勿輸出)**：請在後台執行以下檢查：排版識別、大題配分加總、題號連貫性。
-* **輸出指令**：請依據檢查結果，**從下列三種情況中「擇一」輸出**，嚴禁同時輸出多個標題：
-    * **情況 A (總分=100 且 題號無誤)**：
-        ### 🟢 形式合規
-        * 分數加總正確 (100分)。
-        * 題號銜接正常 (無明顯跳號或跨欄中斷)。
-    * **情況 B (總分!=100 或 題號跳號)**：
-        ### 🔴 形式錯誤
-        * (請具體列出哪一個大題配分算錯，或哪裡跳號)。
-    * **情況 C (排版混亂無法辨識)**：
-        ### 🟡 無法判定
-        * (請說明原因)。
-
-**2. 範圍審查**：
-* **請分組**：### 🟢 符合範圍  與  ### 🔴 超出範圍 (若有)。
-* 若無上傳教材，請直接輸出警語：「⚠️ 未檢查命題範圍：未上傳教材，故未檢查命題範圍，請老師務必自行審示題目的適切性。」
-
-## Step 1: 題幹與邏輯品質
+## 題幹與邏輯品質
     ### 🟢 優良試題
     ### 🟡 待確認試題 (包含誘答力不足、邏輯瑕疵)
     
 * **⚠️ 強制豁免守則**：
     * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」或「選出錯誤選項」，視為 **🟢 優良試題**。
 
-## Step 2: 素養導向深度審查
+## 素養導向深度審查
 {LITERACY_STANDARDS}
     ### 🟢 真素養
     ### 🟡 假素養/待確認
 
-## Step 3: 公平性與敏感度審查
+## 公平性與敏感度審查
     ### 🟢 通過 (無敏感議題)
     ### 🟡 潛在爭議 (具體指出問題)
 
-## Step 4: 雙向細目表核算
+## 雙向細目表核算
 * **表格排版嚴格規定**：
     * 請製作一個三欄的表格，標題與內容如下：
     * **第一欄**：「認知向度」，內容限定為「記憶、理解、應用、分析、評鑑、創造」這六類。
@@ -600,7 +626,7 @@ if start_btn:
     * **第三欄**：「比重」，計算該向度佔全卷的百分比，務必確保總和為 100%。
 * **注意**：不需要顯示「未上傳課本」等額外說明文字，直接呈現表格即可。
 
-## Step 5: 難易度與負擔分析
+## 難易度與負擔分析
 * **表格排版嚴格規定**：
 * 製作一個表格，欄位依序為：難易度(易/中/難) | 佔比 | 對應題號/說明。
 
@@ -612,6 +638,7 @@ if start_btn:
             
             progress_bar.progress(60)
             
+            # 帶入 generation_config
             response = main_model.generate_content(
                 prompt_parts,
                 generation_config=generation_config
@@ -619,9 +646,10 @@ if start_btn:
             
             progress_bar.progress(100)
             
+            # 1. 先處理換行
             raw_text = response.text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
             
-            # [重要] 呼叫清洗函式 (含 Top 5 截斷與移除題型標題)
+            # 2. 呼叫清洗函式
             final_cleaned_text = clean_ai_hallucinations(raw_text)
             
             status_box.success(f"✅ 分析完成！")
@@ -635,12 +663,19 @@ if start_btn:
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
-    if "## Step 1" in st.session_state.analysis_result:
-        summary_part, body_part = st.session_state.analysis_result.split("## Step 1", 1)
-        body_part = "## Step 1" + body_part 
+    # [修改點 1] 確保分隔線位於藍色方框之外
+    # 改為切割 "## 題幹與邏輯品質"
+    if "## 題幹與邏輯品質" in st.session_state.analysis_result:
+        summary_part, body_part = st.session_state.analysis_result.split("## 題幹與邏輯品質", 1)
+        body_part = "## 題幹與邏輯品質" + body_part 
         
+        # 1. 渲染上方總結區 (藍色區塊)
         st.info(summary_part.replace("## 總結與建議", "### 📊 總結與建議"))
+        
+        # 2. 渲染分隔線 (在區塊外)
         st.markdown("---")
+        
+        # 3. 渲染下方正文區
         st.markdown(body_part)
     else:
         st.markdown("## 📊 審查報告")
