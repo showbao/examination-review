@@ -662,22 +662,25 @@ if start_btn:
             if "429" in str(e): st.warning("💡 提示：目前 AI 忙線中，請稍後再試。")
 
 # --- 結果顯示與 Word 生成 ---
+# --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
     # [修正] 確保分隔線位於藍色方框之外
     if "## 題幹與邏輯品質" in st.session_state.analysis_result:
         summary_part, body_part = st.session_state.analysis_result.split("## 題幹與邏輯品質", 1)
         body_part = "## 題幹與邏輯品質" + body_part 
         
-        # [修正] 強制清洗 Markdown 語法衝突 (移除標題前的 * 或 -)
+        # [修正 1] 強制清洗 Markdown 語法衝突 (防止出現 * ###)
         summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
 
-        # 1. 渲染上方總結區 (藍色區塊)
-        st.info(summary_part.replace("## 總結與建議", "### 📊 總結與建議"))
+        # [修正 2] 介面調整：
+        # 移除原本的 .replace("##", "### 📊")，改為直接輸出 summary_part
+        # 這樣就會顯示原本的 "## 總結與建議" (無圖示、大字體 H2)
+        st.info(summary_part)
         
-        # 2. 渲染分隔線 (在區塊外)
+        # 渲染分隔線
         st.markdown("---")
         
-        # 3. 渲染下方正文區
+        # 渲染下方正文區
         st.markdown(body_part)
     else:
         # 若沒有偵測到特定標題，則顯示原始內容
