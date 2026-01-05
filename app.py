@@ -416,7 +416,7 @@ exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="ex
 
 # --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
-start_btn = st.button("🚀 開始\n全方位審查", type="primary", use_container_width=True)
+start_btn = st.button("2️⃣ 開始\n全方位審查", type="primary", use_container_width=True)
 
 # --- 進階功能區 (預設隱藏) ---
 context_files = None
@@ -509,12 +509,12 @@ if start_btn:
                     routing_msg = "📚 偵測到參考教材，啟用快速分析模式"
                 elif is_science:
                     target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📐 理科試卷分析 (強制啟用 Flash 模式)"
+                    routing_msg = "📐 理科試卷分析(啟用標準模式)"
                 else:
                     target_model_name = get_best_flash_model(api_key)
                     routing_msg = "📝 文科試卷分析 (啟用標準模式)"
 
-            status_box.info(f"🔄 Phase 2: {routing_msg}...")
+            status_box.info(f"🔄 AI 深度審查中 ...")
 
             # 3. 資訊提取 (Metadata)
             flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
