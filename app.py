@@ -327,7 +327,7 @@ def _render_word_table(doc, data):
             cell.text = data[r][c]
             for p in cell.paragraphs:
                 for run in p.runs:
-                    set_font_style(run, size=10)
+                    set_font_style(run, size=12)
             if r == 0:
                 for p in cell.paragraphs:
                     for run in p.runs:
@@ -418,7 +418,7 @@ else:
 
 # --- 介面佈局：上傳區 (單欄流式排版) ---
 st.subheader(" 上傳試卷 ")
-exam_file = st.file_uploader("上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
+exam_file = st.file_uploader("📤 上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
 # --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
