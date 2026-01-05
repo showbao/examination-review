@@ -141,9 +141,6 @@ def set_font_style(run, size=12, bold=False, color=None):
 def clean_markdown_symbol(text):
     text = text.replace("**", "").replace("__", "")
     text = text.replace("<br>", "").replace("<br/>", "").replace("<br />", "")
-    # [修正] 不要移除 # 號，因為我們需要它來判斷標題
-    # text = re.sub(r'#+\s*', '', text)  <-- 這一行請註解掉或刪除
-    
     # 移除可能導致誤判的列表符號 (僅移除開頭的 * 或 - )
     text = re.sub(r'^[\*\-]\s+', '', text)
     for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️"]:
