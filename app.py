@@ -307,13 +307,53 @@ def create_word_report(analysis_text, metadata):
             run = p.add_run(clean_text)
             set_font_style(run, size=12)
 
-    if table_mode and table_data:
-        _render_word_table(doc, table_data)
+if table_mode and table_data:
+    _render_word_table(doc, table_data)
 
-    from io import BytesIO
-    f = BytesIO()
-    doc.save(f)
-    return f.getvalue()
+# ==========================================
+# 評量診斷與補救教學 (方案 A：最安全版)
+# ==========================================
+doc.add_page_break()
+
+p = doc.add_paragraph()
+run = p.add_run("評量診斷與補救教學")
+set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
+
+p = doc.add_paragraph()
+run = p.add_run("僅針對錯誤率較高的題目（一至二題）進行試題分析／學習診斷。")
+set_font_style(run, size=12)
+
+doc.add_paragraph()
+
+sections = [
+    "【題目】 第（   ）大題第（   ）題",
+    "",
+    "【學習表現／學習內容】",
+    " ",
+    " ",
+    "",
+    "【評量結果分析】（為何此題錯誤率高？可從試題內容、教學方法等層面分析）",
+    " ",
+    " ",
+    " ",
+    " ",
+    "",
+    "【可行補救教學策略】（請列舉具體可行之策略）",
+    " ",
+    " ",
+    " ",
+    " ",
+]
+
+for line in sections:
+    p = doc.add_paragraph()
+    run = p.add_run(line)
+    set_font_style(run, size=12)
+
+from io import BytesIO
+f = BytesIO()
+doc.save(f)
+return f.getvalue()
 
 def _render_word_table(doc, data):
     if not data: return
