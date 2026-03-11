@@ -154,6 +154,61 @@ def clean_markdown_symbol(text):
     text = text.lstrip("*- ")
     return text.strip()
 
+def is_markdown_table_line(line):
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 3
+
+def is_markdown_separator_line(line):
+    compact = line.strip().replace(" ", "")
+    return bool(re.fullmatch(r'\|?[:\-\|]+\|?', compact)) and "-" in compact
+
+def parse_markdown_table_rows(table_lines):
+    rows = []
+    max_cols = 0
+
+    for raw in table_lines:
+        if is_markdown_separator_line(raw):
+            continue
+
+        cells = [clean_markdown_symbol(c.strip()) for c in raw.strip().strip("|").split("|")]
+        rows.append(cells)
+        max_cols = max(max_cols, len(cells))
+
+    for row in rows:
+        if len(row) < max_cols:
+            row.extend([""] * (max_cols - len(row)))
+
+    return rows
+
+def normalize_analysis_tables(text):
+    lines = text.split("\n")
+    normalized = []
+    i = 0
+
+    while i < len(lines):
+        if is_markdown_table_line(lines[i]):
+            block = []
+            while i < len(lines) and is_markdown_table_line(lines[i]):
+                block.append(lines[i])
+                i += 1
+
+            rows = parse_markdown_table_rows(block)
+            if rows:
+                header = rows[0]
+                col_count = len(header)
+
+                normalized.append("| " + " | ".join(header) + " |")
+                normalized.append("| " + " | ".join(["---"] * col_count) + " |")
+
+                for row in rows[1:]:
+                    normalized.append("| " + " | ".join(row[:col_count]) + " |")
+            continue
+
+        normalized.append(lines[i])
+        i += 1
+
+    return "\n".join(normalized)
+
 def create_word_report(analysis_text, metadata):
     doc = Document()
     
@@ -244,66 +299,66 @@ def create_word_report(analysis_text, metadata):
     
     doc.add_page_break()
     
-    # --- 內容解析 (強力標題抓取版) ---
+    # --- 內容解析 (強化版：表格穩定 + 一般段落/條列分流) ---
+    analysis_text = normalize_analysis_tables(analysis_text)
     lines = analysis_text.split('\n')
     table_mode = False
     table_data = []
 
-    for line in lines:
-        line = line.strip()
-        if not line: continue
+    for raw_line in lines:
+        stripped_line = raw_line.strip()
 
-        # 1. 預先清洗：移除開頭的 * 或 - 以便偵測真正內容
-        # 這樣即使 AI 輸出 "* ### 🟢" 也能被正確識別
-        clean_line_check = re.sub(r'^[\*\-]\s+', '', line)
+        if not stripped_line:
+            if table_mode and table_data:
+                _render_word_table(doc, table_data)
+                table_mode = False
+                table_data = []
+            continue
 
-        # 2. 強制標題判定 (寬鬆模式)
+        clean_line_check = re.sub(r'^[\*\-]\s+', '', stripped_line)
+
         has_icon = any(x in clean_line_check for x in ["🟢", "🔴", "🟡", "👍", "💡", "📊", "⚖️"])
-        has_hash = "##" in clean_line_check
+        has_hash = clean_line_check.startswith("#")
         is_force_header = any(k in clean_line_check for k in ["最優先修正", "難度與鑑別度", "值得讚許", "後續優化", "總結與建議"])
-        
-        # 只要滿足任一條件，就是標題
+
         is_header = has_icon or has_hash or is_force_header
 
-        # H2/H3 大標題邏輯
         if is_header:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
-            final_text = clean_markdown_symbol(line)
-            
+            final_text = clean_markdown_symbol(stripped_line)
+
             p = doc.add_paragraph()
             run = p.add_run(final_text)
-            
-            if "🟢" in line or "優良" in line or "真素養" in line or "合規" in line:
-                set_font_style(run, size=14, bold=True, color=RGBColor(0, 100, 0)) # 深綠
-            elif "🔴" in line or "待改善" in line or "錯誤" in line or "優先" in line:
-                set_font_style(run, size=14, bold=True, color=RGBColor(200, 0, 0)) # 深紅
-            elif "🟡" in line or "待確認" in line or "無法" in line:
-                set_font_style(run, size=14, bold=True, color=RGBColor(204, 153, 0)) # 深黃
+
+            if "🟢" in stripped_line or "優良" in stripped_line or "真素養" in stripped_line or "合規" in stripped_line:
+                set_font_style(run, size=14, bold=True, color=RGBColor(0, 100, 0))
+            elif "🔴" in stripped_line or "待改善" in stripped_line or "錯誤" in stripped_line or "優先" in stripped_line:
+                set_font_style(run, size=14, bold=True, color=RGBColor(200, 0, 0))
+            elif "🟡" in stripped_line or "待確認" in stripped_line or "無法" in stripped_line:
+                set_font_style(run, size=14, bold=True, color=RGBColor(204, 153, 0))
             else:
                 set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
 
-        # 表格處理
-        elif line.startswith("|"):
+        elif is_markdown_table_line(stripped_line):
             table_mode = True
-            if "---" in line: continue
-            row_cells = [clean_markdown_symbol(c) for c in line.split("|") if c.strip()]
-            table_data.append(row_cells)
-            
-        # 一般內文列表
+            table_data.append(stripped_line)
+
         else:
             if table_mode and table_data:
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
-            
-            clean_text = clean_markdown_symbol(line)
-            if not clean_text: continue 
-            
-            p = doc.add_paragraph(style='List Bullet')
+
+            clean_text = clean_markdown_symbol(stripped_line)
+            if not clean_text:
+                continue
+
+            is_bullet = bool(re.match(r'^[\*\-]\s+', stripped_line))
+            p = doc.add_paragraph(style='List Bullet' if is_bullet else None)
             run = p.add_run(clean_text)
             set_font_style(run, size=12)
 
@@ -356,18 +411,30 @@ def create_word_report(analysis_text, metadata):
     return f.getvalue()
 
 def _render_word_table(doc, data):
-    if not data: return
-    rows = len(data)
-    cols = len(data[0])
+    if not data:
+        return
+
+    rows_data = parse_markdown_table_rows(data) if isinstance(data[0], str) else data
+    if not rows_data:
+        return
+
+    rows = len(rows_data)
+    cols = max(len(row) for row in rows_data)
+
     table = doc.add_table(rows=rows, cols=cols)
     table.style = 'Table Grid'
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
     for r in range(rows):
-        for c in range(min(cols, len(data[r]))):
+        for c in range(cols):
             cell = table.cell(r, c)
-            cell.text = data[r][c]
+            text = rows_data[r][c] if c < len(rows_data[r]) else ""
+            cell.text = text
+
             for p in cell.paragraphs:
                 for run in p.runs:
                     set_font_style(run, size=12)
+
             if r == 0:
                 for p in cell.paragraphs:
                     for run in p.runs:
@@ -375,37 +442,38 @@ def _render_word_table(doc, data):
 
 def clean_ai_hallucinations(text):
     """
-    針對 Flash 模型進行強制清洗與格式微調 (Post-Processing)
+    針對 AI 輸出進行清洗，但保護 Markdown 表格區塊
     """
-    # 1. [修正] 移除題型標題 (如：一、判斷題) 讓列表更乾淨
-    text = re.sub(r'^\s*[一二三四五六七八九十0-9]+[、\.][\u4e00-\u9fa5]+\s*$', '', text, flags=re.MULTILINE)
+    table_blocks = []
 
-    # 2. [新增] 強制題目換行 (針對擠成一團的文字)
-    # 匹配模式：(句號或分號) + (空白) + (中文數字或數字-數字)
-    # 效果：將 "...。 二-1" 轉換為 "...。\n* 二-1"
+    def protect_table(match):
+        table_blocks.append(match.group(0))
+        return f"@@TABLE_BLOCK_{len(table_blocks)-1}@@"
+
+    text = re.sub(r'((?:^\|.*\|\s*$\n?){2,})', protect_table, text, flags=re.MULTILINE)
+
+    text = re.sub(r'^\s*[一二三四五六七八九十0-9]+[、\.][\u4e00-\u9fa5]+\s*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'([。；：])\s*([一二三四五六七八九十\d]+-[\d]+)', r'\1\n* \2', text)
-    
-    # 2. [修正] 強制截斷列表 (Top 5 限制)
+
     def truncate_list(match):
-        header = match.group(1) # 標題
-        content = match.group(2) # 內容列表
+        header = match.group(1)
+        content = match.group(2)
         lines = [line for line in content.split('\n') if line.strip()]
-        
-        # 只保留前 5 行，若超過則加上省略號
+
         if len(lines) > 5:
             new_content = "\n".join(lines[:5]) + "\n* (其餘優良試題略)..."
             return f"{header}\n{new_content}\n"
         return match.group(0)
 
-    # 針對綠燈優良試題
     text = re.sub(r'(###\s*🟢\s*優良試題.*?)((\n\s*[\*\-].*?)+)(?=\n###)', truncate_list, text, flags=re.DOTALL)
-    # 針對真素養
     text = re.sub(r'(###\s*🟢\s*真素養.*?)((\n\s*[\*\-].*?)+)(?=\n###)', truncate_list, text, flags=re.DOTALL)
 
-    # 3. 移除多餘的連續空行
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    
-    return text.strip()
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
+
+    for idx, block in enumerate(table_blocks):
+        text = text.replace(f"@@TABLE_BLOCK_{idx}@@", normalize_analysis_tables(block))
+
+    return normalize_analysis_tables(text)
 
 # ==========================================
 # 3. 登入與介面
@@ -544,23 +612,25 @@ if start_btn:
             routing_msg = ""
 
             if model_mode == "手動指定" and ENABLE_ADVANCED_FEATURES:
-                if "Pro" in manual_model: 
+                if "Pro" in manual_model:
                     target_model_name = get_best_pro_model(api_key)
-                else: 
-                    target_model_name = get_best_flash_model(api_key)
-            else:
-                # [修正點 1] 強制全線使用 Flash
-                if context_files:
-                    target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📚 偵測到參考教材，啟用快速分析模式"
-                elif is_science:
-                    target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📐 理科試卷分析(啟用標準模式)"
+                    routing_msg = "🧠 手動指定 Pro 模型"
                 else:
                     target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📝 文科試卷分析 (啟用標準模式)"
+                    routing_msg = "⚡ 手動指定 Flash 模型"
+            else:
+                # 恢復品質優先的智慧分流
+                if context_files:
+                    target_model_name = get_best_pro_model(api_key)
+                    routing_msg = "📚 偵測到參考教材，啟用品質優先分析模式"
+                elif is_science:
+                    target_model_name = get_best_pro_model(api_key)
+                    routing_msg = "📐 理科試卷分析（啟用品質優先模式）"
+                else:
+                    target_model_name = get_best_flash_model(api_key)
+                    routing_msg = "📝 文科試卷分析（啟用標準模式）"
 
-            status_box.info(f"🔄 AI 深度審查中 ...")
+            status_box.info(f"🔄 AI 深度審查中 ... {routing_msg}")
 
             # 3. 資訊提取 (Metadata)
             flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
@@ -645,7 +715,9 @@ if start_btn:
 3. 強制換行。
 4. **題號格式統一**：請務必使用「**大題-小題**」格式 (例如：**二-7**、**三-1**)，嚴禁使用「題二-第7題」這種冗贅寫法。
 5. **題目錨點**：務必於題號後方，括號摘錄該題題目開頭約 5~7 個字。
-6. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題(優良試題、真素養因排版關係，若超過 5 點請擇優列出)。
+6. **拒絕模糊論述**：每一項分析都必須具體列出是哪幾題。
+7. **先在內部完成檢查，再輸出最終答案**：請自行檢查題號是否前後一致、表格是否完整、百分比是否合理後，再輸出。
+8. **除指定表格外，禁止自行發明其他表格或格式。**
 
 請嚴格依照以下順序輸出 Markdown 報告：
 
@@ -672,16 +744,39 @@ if start_btn:
     ### 🟡 潛在爭議 (具體指出問題)(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
 
 ## 雙向細目表核算
-* **表格排版嚴格規定**：
-    * 請製作一個三欄的表格，標題與內容如下：
-    * **第一欄**：「認知向度」，內容限定為「記憶、理解、應用、分析、評鑑、創造」這六類。
-    * **第二欄**：「對應題號」，填寫符合該向度的題號。
-    * **第三欄**：「比重」，計算該向度佔全卷的百分比，務必確保總和為 100%。
-* **注意**：不需要顯示「未上傳課本」等額外說明文字，直接呈現表格即可。
+請**只能**輸出以下 Markdown 表格，不可改標題、不可加前言、不可加註解、不可少列：
+
+| 認知向度 | 對應題號 | 比重 |
+| --- | --- | --- |
+| 記憶 |  |  |
+| 理解 |  |  |
+| 應用 |  |  |
+| 分析 |  |  |
+| 評鑑 |  |  |
+| 創造 |  |  |
+
+硬性規定：
+1. 必須剛好六列，不可增減。
+2. 「比重」一律用百分比表示，例如 15%。
+3. 六列百分比總和必須為 100%。
+4. 若無法完全判定，也要依最合理方式分配，不可留空整列。
+5. 本段除了上表，不可輸出任何額外句子。
 
 ## 難易度與負擔分析
-* **表格排版嚴格規定**：
-* 製作一個表格，欄位依序為：難易度(易/中/難) | 佔比 | 對應題號/說明。
+請**只能**輸出以下 Markdown 表格，不可改標題、不可加前言、不可加註解：
+
+| 難易度 | 佔比 | 對應題號/說明 |
+| --- | --- | --- |
+| 易 |  |  |
+| 中 |  |  |
+| 難 |  |  |
+
+硬性規定：
+1. 必須剛好三列，不可增減。
+2. 「佔比」一律用百分比表示，例如 40%。
+3. 三列百分比總和必須為 100%。
+4. 「對應題號/說明」請寫具體題號，不可只寫「略」或「多題」。
+5. 本段除了上表，不可輸出任何額外句子。
 
 """
             if context_files: prompt_parts.append("【參考教材】：")
@@ -716,35 +811,25 @@ if start_btn:
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
-    st.warning("⚠️ **系統限制與聲明**：本系統僅針對試題內容進行深度分析，**未檢核**「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。")
-    # [修正] 確保分隔線位於藍色方框之外
-    if "## 題幹與邏輯品質" in st.session_state.analysis_result:
-        summary_part, body_part = st.session_state.analysis_result.split("## 題幹與邏輯品質", 1)
-        body_part = "## 題幹與邏輯品質" + body_part 
-        
-        # [修正 1] 強制清洗 Markdown 語法衝突 (防止出現 * ###)
-        summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
+    normalized_result = normalize_analysis_tables(st.session_state.analysis_result)
 
-        # [修正 3 - 新增] 移除藍色方框內末端的多餘分隔線
-        # 說明：刪除 summary_part 結尾處可能存在的 "---" 符號
+    st.warning("⚠️ **系統限制與聲明**：本系統僅針對試題內容進行深度分析，**未檢核**「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。")
+
+    if "## 題幹與邏輯品質" in normalized_result:
+        summary_part, body_part = normalized_result.split("## 題幹與邏輯品質", 1)
+        body_part = "## 題幹與邏輯品質" + body_part
+        
+        summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
         summary_part = re.sub(r'\n\s*---\s*$', '', summary_part).strip()
-        
-        # [修正 2] 介面調整：
-        # 移除原本的 .replace("##", "### 📊")，改為直接輸出 summary_part
-        # 這樣就會顯示原本的 "## 總結與建議" (無圖示、大字體 H2)
+
         st.info(summary_part)
-        
-        # 渲染分隔線
         st.markdown("---")
-        
-        # 渲染下方正文區
         st.markdown(body_part)
     else:
-        # 若沒有偵測到特定標題，則顯示原始內容
         st.markdown("## 📊 審查報告")
-        st.markdown(st.session_state.analysis_result)
+        st.markdown(normalized_result)
     
-    word_binary = create_word_report(st.session_state.analysis_result, st.session_state.metadata)
+    word_binary = create_word_report(normalized_result, st.session_state.metadata)
     
     st.download_button(
         label="📥 下載 Word 報告 (.docx)",
