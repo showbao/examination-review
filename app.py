@@ -245,13 +245,14 @@ def add_main_section_title(doc, text):
     set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
 
 def add_sub_section_title(cell, text):
+
+    # 子項標題前空一行
+    spacer = cell.add_paragraph()
+    spacer.paragraph_format.space_after = Pt(6)
+
     p = cell.add_paragraph()
     run = p.add_run(text)
     set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
-
-    # 子項標題後空一行
-    spacer = cell.add_paragraph()
-    spacer.paragraph_format.space_after = Pt(6)
 
     return p
 
@@ -366,18 +367,30 @@ def create_word_report(analysis_text, metadata):
         stripped_line = raw_line.strip()
 
         if not stripped_line:
-            if table_mode and table_data and current_box_cell is not None:
-                _render_word_table(current_box_cell, table_data)
+            if table_mode and table_data:
+
+                if current_box_cell is not None:
+                    _render_word_table(current_box_cell, table_data)
+                else:
+                    _render_word_table(doc, table_data)
+
                 table_mode = False
                 table_data = []
+
             continue
 
         clean_text = clean_markdown_symbol(stripped_line)
         clean_text = re.sub(r'\s*[:：]\s*$', '', clean_text)
 
         if is_main_section_header(stripped_line):
-            if table_mode and table_data and current_box_cell is not None:
-                _render_word_table(current_box_cell, table_data)
+
+            if table_mode and table_data:
+
+                if current_box_cell is not None:
+                    _render_word_table(current_box_cell, table_data)
+                else:
+                    _render_word_table(doc, table_data)
+
                 table_mode = False
                 table_data = []
 
