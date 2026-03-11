@@ -209,6 +209,59 @@ def normalize_analysis_tables(text):
 
     return "\n".join(normalized)
 
+def is_main_section_header(line):
+    clean = clean_markdown_symbol(line.strip())
+    main_headers = [
+        "總結與建議",
+        "題幹與邏輯品質",
+        "素養導向深度審查",
+        "公平性與敏感度審查",
+        "雙向細目表核算",
+        "難易度與負擔分析",
+        "評量診斷與補救教學"
+    ]
+    return clean in main_headers
+
+def is_sub_section_header(line):
+    clean = clean_markdown_symbol(line.strip())
+    sub_headers = [
+        "最優先修正 (Critical)",
+        "難度與鑑別度點評",
+        "值得讚許之處",
+        "後續優化建議",
+        "優良試題",
+        "待確認試題",
+        "真素養",
+        "假素養/待確認",
+        "通過 (無敏感議題)",
+        "潛在爭議 (具體指出問題)"
+    ]
+    return clean in sub_headers
+
+def add_main_section_title(doc, text):
+    doc.add_paragraph()
+    p = doc.add_paragraph()
+    run = p.add_run(text)
+    set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
+
+def add_sub_section_title(cell, text):
+    p = cell.add_paragraph()
+    run = p.add_run(text)
+    set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
+    return p
+
+def add_bullet_to_cell(cell, text):
+    p = cell.add_paragraph(style='List Bullet')
+    run = p.add_run(text)
+    set_font_style(run, size=12)
+    return p
+
+def add_plain_text_to_cell(cell, text):
+    p = cell.add_paragraph()
+    run = p.add_run(text)
+    set_font_style(run, size=12)
+    return p
+
 def create_word_report(analysis_text, metadata):
     doc = Document()
     
@@ -251,7 +304,7 @@ def create_word_report(analysis_text, metadata):
             
     doc.add_paragraph()
 
-    # --- 命題老師修改及說明 ---
+    # 命題教師修改及說明
     p = doc.add_paragraph()
     run = p.add_run("命題教師修改及說明")
     set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
@@ -260,7 +313,6 @@ def create_word_report(analysis_text, metadata):
     feedback_table.style = 'Table Grid'
     cell = feedback_table.cell(0, 0)
     
-    # 定義純文字列表
     checkbox_items = [
         "無需修改試題。",
         "經命題老師確認，以下試題為AI幻覺，已判斷無需修正。\n   試題：_______________________________________________________",
@@ -271,106 +323,113 @@ def create_word_report(analysis_text, metadata):
         p_check = cell.add_paragraph()
         p_check.paragraph_format.line_spacing = 2.0 
         
-        # 獨立渲染大方框
         run_box = p_check.add_run("□ ")
         set_font_style(run_box, size=18) 
         
-        # 渲染後方文字
         run_text = p_check.add_run(item_text)
         set_font_style(run_text, size=12)
 
-    # 新增「其他說明」與留白
     p_other = cell.add_paragraph("其他說明：")
     set_font_style(p_other.runs[0] if p_other.runs else p_other.add_run("其他說明："), size=12)
     p_other.paragraph_format.line_spacing = 2.0
     
-    # 預留 5 行空行供手寫
     for _ in range(5):
         p_empty = cell.add_paragraph()
         p_empty.paragraph_format.line_spacing = 2.0
     
-    doc.add_paragraph() # 再空一行
+    doc.add_paragraph()
 
-    # [新增] 系統免責聲明 (Word版)
+    # 系統免責聲明
     warning_text = "⚠️ 系統限制與聲明：本系統僅針對試題內容進行深度分析，未檢核「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。"
     p_warn = doc.add_paragraph()
     run_warn = p_warn.add_run(warning_text)
-    set_font_style(run_warn, size=11, bold=True, color=RGBColor(255, 0, 0)) # 紅色粗體提醒
-    
+    set_font_style(run_warn, size=11, bold=True, color=RGBColor(255, 0, 0))
+
     doc.add_page_break()
-    
-    # --- 內容解析 (強化版：表格穩定 + 一般段落/條列分流) ---
+
+    # --- 內容解析（主標題 / 子標題 / 外框區塊版）---
     analysis_text = normalize_analysis_tables(analysis_text)
     lines = analysis_text.split('\n')
     table_mode = False
     table_data = []
 
+    current_box_table = None
+    current_box_cell = None
+    current_sub_header = None
+
     for raw_line in lines:
         stripped_line = raw_line.strip()
 
         if not stripped_line:
-            if table_mode and table_data:
-                _render_word_table(doc, table_data)
+            if table_mode and table_data and current_box_cell is not None:
+                _render_word_table(current_box_cell, table_data)
                 table_mode = False
                 table_data = []
             continue
 
-        clean_line_check = re.sub(r'^[\*\-]\s+', '', stripped_line)
+        clean_text = clean_markdown_symbol(stripped_line)
+        clean_text = re.sub(r'\s*[:：]\s*$', '', clean_text)
 
-        has_icon = any(x in clean_line_check for x in ["🟢", "🔴", "🟡", "👍", "💡", "📊", "⚖️"])
-        has_hash = clean_line_check.startswith("#")
-        is_force_header = any(k in clean_line_check for k in ["最優先修正", "難度與鑑別度", "值得讚許", "後續優化", "總結與建議"])
-
-        is_header = has_icon or has_hash or is_force_header
-
-        if is_header:
-            if table_mode and table_data:
-                _render_word_table(doc, table_data)
+        if is_main_section_header(stripped_line):
+            if table_mode and table_data and current_box_cell is not None:
+                _render_word_table(current_box_cell, table_data)
                 table_mode = False
                 table_data = []
 
-            final_text = clean_markdown_symbol(stripped_line)
+            add_main_section_title(doc, clean_text)
 
-            p = doc.add_paragraph()
-            run = p.add_run(final_text)
+            current_box_table = doc.add_table(rows=1, cols=1)
+            current_box_table.style = 'Table Grid'
+            current_box_cell = current_box_table.cell(0, 0)
+            current_sub_header = None
+            continue
 
-            if "🟢" in stripped_line or "優良" in stripped_line or "真素養" in stripped_line or "合規" in stripped_line:
-                set_font_style(run, size=14, bold=True, color=RGBColor(0, 100, 0))
-            elif "🔴" in stripped_line or "待改善" in stripped_line or "錯誤" in stripped_line or "優先" in stripped_line:
-                set_font_style(run, size=14, bold=True, color=RGBColor(200, 0, 0))
-            elif "🟡" in stripped_line or "待確認" in stripped_line or "無法" in stripped_line:
-                set_font_style(run, size=14, bold=True, color=RGBColor(204, 153, 0))
-            else:
-                set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
+        if is_sub_section_header(stripped_line):
+            if table_mode and table_data and current_box_cell is not None:
+                _render_word_table(current_box_cell, table_data)
+                table_mode = False
+                table_data = []
 
-        elif is_markdown_table_line(stripped_line):
+            if current_box_cell is None:
+                current_box_table = doc.add_table(rows=1, cols=1)
+                current_box_table.style = 'Table Grid'
+                current_box_cell = current_box_table.cell(0, 0)
+
+            add_sub_section_title(current_box_cell, clean_text)
+            current_sub_header = clean_text
+            continue
+
+        if is_markdown_table_line(stripped_line):
             table_mode = True
             table_data.append(stripped_line)
+            continue
 
+        if table_mode and table_data and current_box_cell is not None:
+            _render_word_table(current_box_cell, table_data)
+            table_mode = False
+            table_data = []
+
+        if not clean_text:
+            continue
+
+        if current_box_cell is None:
+            current_box_table = doc.add_table(rows=1, cols=1)
+            current_box_table.style = 'Table Grid'
+            current_box_cell = current_box_table.cell(0, 0)
+
+        if re.match(r'^[\*\-]\s+', stripped_line):
+            add_bullet_to_cell(current_box_cell, clean_text)
         else:
-            if table_mode and table_data:
-                _render_word_table(doc, table_data)
-                table_mode = False
-                table_data = []
+            if current_sub_header is not None:
+                add_bullet_to_cell(current_box_cell, clean_text)
+            else:
+                add_plain_text_to_cell(current_box_cell, clean_text)
 
-            clean_text = clean_markdown_symbol(stripped_line)
-            if not clean_text:
-                continue
+    if table_mode and table_data and current_box_cell is not None:
+        _render_word_table(current_box_cell, table_data)
 
-            is_bullet = bool(re.match(r'^[\*\-]\s+', stripped_line))
-            p = doc.add_paragraph(style='List Bullet' if is_bullet else None)
-            run = p.add_run(clean_text)
-            set_font_style(run, size=12)
-
-    if table_mode and table_data:
-        _render_word_table(doc, table_data)
-
-    # ==========================================
-    # 評量診斷與補救教學（改為外框區塊，不另起新頁）
-    # ==========================================
-    p = doc.add_paragraph()
-    run = p.add_run("評量診斷與補救教學")
-    set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
+    # 評量診斷與補救教學
+    add_main_section_title(doc, "評量診斷與補救教學")
 
     remedial_table = doc.add_table(rows=1, cols=1)
     remedial_table.style = 'Table Grid'
@@ -378,11 +437,8 @@ def create_word_report(analysis_text, metadata):
 
     remedial_lines = [
         "僅針對錯誤率較高的題目（一至二題）進行試題分析／學習診斷。",
-        "",
         "【題目】 第（   ）大題第（   ）題",
-        "",
         "【學習表現／學習內容】",
-        "",
         "",
         "",
         "【評量結果分析】（為何此題錯誤率高？可從試題內容、教學方法等層面分析）",
@@ -394,27 +450,20 @@ def create_word_report(analysis_text, metadata):
         "",
         "",
         "",
-        ""
+        "",
     ]
 
-    for idx, line in enumerate(remedial_lines):
-        if idx == 0:
-            p_rem = remedial_cell.paragraphs[0]
-        else:
-            p_rem = remedial_cell.add_paragraph()
-
+    for line in remedial_lines:
+        p_rem = remedial_cell.add_paragraph()
         run = p_rem.add_run(line)
         set_font_style(run, size=12)
-
-        if line == "":
-            p_rem.paragraph_format.line_spacing = 1.5
 
     from io import BytesIO
     f = BytesIO()
     doc.save(f)
     return f.getvalue()
 
-def _render_word_table(doc, data):
+def _render_word_table(container, data):
     if not data:
         return
 
@@ -425,7 +474,7 @@ def _render_word_table(doc, data):
     rows = len(rows_data)
     cols = max(len(row) for row in rows_data)
 
-    table = doc.add_table(rows=rows, cols=cols)
+    table = container.add_table(rows=rows, cols=cols)
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
