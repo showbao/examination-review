@@ -366,44 +366,48 @@ def create_word_report(analysis_text, metadata):
         _render_word_table(doc, table_data)
 
     # ==========================================
-    # 評量診斷與補救教學 (方案 A：最安全版)
+    # 評量診斷與補救教學（改為外框區塊，不另起新頁）
     # ==========================================
-    doc.add_page_break()
-
     p = doc.add_paragraph()
     run = p.add_run("評量診斷與補救教學")
-    set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
+    set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
 
-    p = doc.add_paragraph()
-    run = p.add_run("僅針對錯誤率較高的題目（一至二題）進行試題分析／學習診斷。")
-    set_font_style(run, size=12)
+    remedial_table = doc.add_table(rows=1, cols=1)
+    remedial_table.style = 'Table Grid'
+    remedial_cell = remedial_table.cell(0, 0)
 
-    doc.add_paragraph()
-
-    sections = [
+    remedial_lines = [
+        "僅針對錯誤率較高的題目（一至二題）進行試題分析／學習診斷。",
+        "",
         "【題目】 第（   ）大題第（   ）題",
         "",
         "【學習表現／學習內容】",
-        " ",
-        " ",
+        "",
+        "",
         "",
         "【評量結果分析】（為何此題錯誤率高？可從試題內容、教學方法等層面分析）",
-        " ",
-        " ",
-        " ",
-        " ",
+        "",
+        "",
+        "",
         "",
         "【可行補救教學策略】（請列舉具體可行之策略）",
-        " ",
-        " ",
-        " ",
-        " ",
+        "",
+        "",
+        "",
+        ""
     ]
 
-    for line in sections:
-        p = doc.add_paragraph()
-        run = p.add_run(line)
+    for idx, line in enumerate(remedial_lines):
+        if idx == 0:
+            p_rem = remedial_cell.paragraphs[0]
+        else:
+            p_rem = remedial_cell.add_paragraph()
+
+        run = p_rem.add_run(line)
         set_font_style(run, size=12)
+
+        if line == "":
+            p_rem.paragraph_format.line_spacing = 1.5
 
     from io import BytesIO
     f = BytesIO()
@@ -467,6 +471,7 @@ def clean_ai_hallucinations(text):
 
     text = re.sub(r'(###\s*🟢\s*優良試題.*?)((\n\s*[\*\-].*?)+)(?=\n###)', truncate_list, text, flags=re.DOTALL)
     text = re.sub(r'(###\s*🟢\s*真素養.*?)((\n\s*[\*\-].*?)+)(?=\n###)', truncate_list, text, flags=re.DOTALL)
+    text = re.sub(r'(###\s*🟢\s*通過.*?)((\n\s*[\*\-].*?)+)(?=\n###)', truncate_list, text, flags=re.DOTALL)
 
     text = re.sub(r'\n{3,}', '\n\n', text).strip()
 
@@ -726,10 +731,9 @@ if start_btn:
      ### ⚖️ 難度與鑑別度點評 : (預估試卷難度分佈與鑑別度建議)
      ### 👍 值得讚許之處 : (列出試卷優點，若超過 5 點請擇優列出)
      ### 💡 後續優化建議 : (錦上添花的建議)
-
 ## 題幹與邏輯品質
-    ### 🟢 優良試題(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
-    ### 🟡 待確認試題 (包含誘答力不足、邏輯瑕疵， **強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
+    ### 🟢 優良試題(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭；每一點都必須包含「題號 + 題目錨點 + 為何優良的具體原因」，不可只寫題號或題目。格式範例：* 一-3（題目開頭）— 題意清楚、選項具鑑別度、能有效檢核學生是否掌握核心概念。)
+    ### 🟡 待確認試題 (包含誘答力不足、邏輯瑕疵， **強制清單**：每一題務必換行，使用列點符號 (*) 開頭，並具體說明待確認原因。)
     
 * **⚠️ 強制豁免守則**：
     * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」或「選出錯誤選項」，視為 **🟢 優良試題**。
@@ -740,8 +744,8 @@ if start_btn:
     ### 🟡 假素養/待確認(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
 
 ## 公平性與敏感度審查
-    ### 🟢 通過 (無敏感議題)(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
-    ### 🟡 潛在爭議 (具體指出問題)(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
+    ### 🟢 通過 (無敏感議題)(請只列 1～3 題代表性題目作為佐證，每一題務必換行，使用列點符號 (*) 開頭；若超過 3 題，其餘請以「* (其餘通過試題略)...」收尾，不需要逐題全部列出。)
+    ### 🟡 潛在爭議 (具體指出問題)(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，並具體說明爭議原因。)
 
 ## 雙向細目表核算
 請**只能**輸出以下 Markdown 表格，不可改標題、不可加前言、不可加註解、不可少列：
