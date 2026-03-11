@@ -236,7 +236,7 @@ def is_sub_section_header(line):
         "通過 (無敏感議題)",
         "潛在爭議 (具體指出問題)"
     ]
-    return clean in sub_headers
+    return any(clean.startswith(header) for header in sub_headers)
 
 def add_main_section_title(doc, text):
     doc.add_paragraph()
@@ -248,6 +248,11 @@ def add_sub_section_title(cell, text):
     p = cell.add_paragraph()
     run = p.add_run(text)
     set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
+
+    # 子項標題後空一行
+    spacer = cell.add_paragraph()
+    spacer.paragraph_format.space_after = Pt(6)
+
     return p
 
 def add_bullet_to_cell(cell, text):
@@ -378,25 +383,50 @@ def create_word_report(analysis_text, metadata):
 
             add_main_section_title(doc, clean_text)
 
-            current_box_table = doc.add_table(rows=1, cols=1)
-            current_box_table.style = 'Table Grid'
-            current_box_cell = current_box_table.cell(0, 0)
+            # 雙向細目表核算、難易度與負擔分析不建立外層框
+            if clean_text in ["雙向細目表核算", "難易度與負擔分析"]:
+                current_box_table = None
+                current_box_cell = None
+            else:
+                current_box_table = doc.add_table(rows=1, cols=1)
+                current_box_table.style = 'Table Grid'
+                current_box_cell = current_box_table.cell(0, 0)
+
             current_sub_header = None
             continue
-
         if is_sub_section_header(stripped_line):
             if table_mode and table_data and current_box_cell is not None:
                 _render_word_table(current_box_cell, table_data)
                 table_mode = False
                 table_data = []
 
+            sub_headers = [
+                "最優先修正 (Critical)",
+                "難度與鑑別度點評",
+                "值得讚許之處",
+                "後續優化建議",
+                "優良試題",
+                "待確認試題",
+                "真素養",
+                "假素養/待確認",
+                "通過 (無敏感議題)",
+                "潛在爭議 (具體指出問題)"
+            ]
+
+            matched_sub_header = next((h for h in sub_headers if clean_text.startswith(h)), clean_text)
+            trailing_text = clean_text[len(matched_sub_header):].strip("：: ").strip()
+
             if current_box_cell is None:
                 current_box_table = doc.add_table(rows=1, cols=1)
                 current_box_table.style = 'Table Grid'
                 current_box_cell = current_box_table.cell(0, 0)
 
-            add_sub_section_title(current_box_cell, clean_text)
-            current_sub_header = clean_text
+            add_sub_section_title(current_box_cell, matched_sub_header)
+            current_sub_header = matched_sub_header
+
+            if trailing_text:
+                add_bullet_to_cell(current_box_cell, trailing_text)
+
             continue
 
         if is_markdown_table_line(stripped_line):
@@ -412,12 +442,20 @@ def create_word_report(analysis_text, metadata):
         if not clean_text:
             continue
 
+        # 將數字列點統一轉成小黑點內容
+        clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
+
+        # 雙向細目表核算、難易度與負擔分析：表格直接插入文件，不建立外框
+        if current_box_cell is None and current_sub_header is None and not is_markdown_table_line(stripped_line):
+            add_plain_text_to_cell(doc, clean_text)
+            continue
+
         if current_box_cell is None:
             current_box_table = doc.add_table(rows=1, cols=1)
             current_box_table.style = 'Table Grid'
             current_box_cell = current_box_table.cell(0, 0)
 
-        if re.match(r'^[\*\-]\s+', stripped_line):
+        if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
             add_bullet_to_cell(current_box_cell, clean_text)
         else:
             if current_sub_header is not None:
@@ -425,8 +463,11 @@ def create_word_report(analysis_text, metadata):
             else:
                 add_plain_text_to_cell(current_box_cell, clean_text)
 
-    if table_mode and table_data and current_box_cell is not None:
-        _render_word_table(current_box_cell, table_data)
+    if table_mode and table_data:
+        if current_box_cell is not None:
+            _render_word_table(current_box_cell, table_data)
+        else:
+            _render_word_table(doc, table_data)
 
     # 評量診斷與補救教學
     add_main_section_title(doc, "評量診斷與補救教學")
