@@ -7,8 +7,9 @@ import re
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMEN
 
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
@@ -223,9 +224,9 @@ def is_main_section_header(line):
     return clean in main_headers
 
 def is_sub_section_header(line):
-    clean = clean_markdown_symbol(line.strip())
+    clean = normalize_sub_header_text(line)
     sub_headers = [
-        "最優先修正",
+        "最優先修正 (Critical)",
         "難度與鑑別度點評",
         "值得讚許之處",
         "後續優化建議",
@@ -234,9 +235,9 @@ def is_sub_section_header(line):
         "真素養",
         "假素養/待確認",
         "通過 (無敏感議題)",
-        "潛在爭議 (具體指出問題)"
-        "閱讀負擔"
-        "圖表判讀負擔"
+        "潛在爭議 (具體指出問題)",
+        "閱讀負擔",
+        "圖表判讀負擔",
         "運算負擔"
     ]
     return any(clean.startswith(header) for header in sub_headers)
@@ -270,6 +271,23 @@ def add_plain_text_to_cell(cell, text):
     run = p.add_run(text)
     set_font_style(run, size=12)
     return p
+
+def normalize_sub_header_text(text):
+    text = clean_markdown_symbol(text.strip())
+    text = re.sub(r'^[📖📊🧮]\s*', '', text)
+    text = re.sub(r'\s*[:：]\s*$', '', text)
+    return text.strip()
+
+def set_cell_shading(cell, fill="D9D9D9"):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:fill'), fill)
+    tc_pr.append(shd)
+
+def prevent_row_break(row):
+    tr_pr = row._tr.get_or_add_trPr()
+    cant_split = OxmlElement('w:cantSplit')
+    tr_pr.append(cant_split) p
 
 def create_word_report(analysis_text, metadata):
     doc = Document()
@@ -417,7 +435,7 @@ def create_word_report(analysis_text, metadata):
                 table_data = []
 
             sub_headers = [
-                "最優先修正",
+                "最優先修正 (Critical)",
                 "難度與鑑別度點評",
                 "值得讚許之處",
                 "後續優化建議",
@@ -426,28 +444,32 @@ def create_word_report(analysis_text, metadata):
                 "真素養",
                 "假素養/待確認",
                 "通過 (無敏感議題)",
-                "潛在爭議 (具體指出問題)"
-                "閱讀負擔"
-                "圖表判讀負擔"
+                "潛在爭議 (具體指出問題)",
+                "閱讀負擔",
+                "圖表判讀負擔",
                 "運算負擔"
             ]
 
-            matched_sub_header = next((h for h in sub_headers if clean_text.startswith(h)), clean_text)
-            trailing_text = clean_text[len(matched_sub_header):].strip("：: ").strip()
+            normalized_sub_text = normalize_sub_header_text(stripped_line)
+            matched_sub_header = next((h for h in sub_headers if normalized_sub_text.startswith(h)), normalized_sub_text)
+            trailing_text = normalized_sub_text[len(matched_sub_header):].strip("：: ").strip()
 
             if current_box_cell is None:
                 current_box_table = doc.add_table(rows=1, cols=1)
                 current_box_table.style = 'Table Grid'
                 current_box_cell = current_box_table.cell(0, 0)
 
-            add_sub_section_title(current_box_cell, matched_sub_header)
+            display_header = stripped_line.strip()
+            display_header = re.sub(r'^#+\s*', '', display_header).strip()
+            display_header = re.sub(r'\s*[:：]\s*$', '', display_header)
+
+            add_sub_section_title(current_box_cell, display_header)
             current_sub_header = matched_sub_header
 
-            if trailing_text:
+            if trailing_text and trailing_text != matched_sub_header:
                 add_bullet_to_cell(current_box_cell, trailing_text)
 
             continue
-
         if is_markdown_table_line(stripped_line):
             table_mode = True
             table_data.append(stripped_line)
@@ -539,22 +561,46 @@ def _render_word_table(container, data):
     table = container.add_table(rows=rows, cols=cols)
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+
+    header_row = rows_data[0] if rows_data else []
+    header_texts = [str(x).strip() for x in header_row]
+
+    # 欄寬設定
+    if header_texts == ["認知向度", "對應題號", "比重"]:
+        width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
+    elif header_texts == ["難易度", "對應題號", "比重"]:
+        width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
+    else:
+        width_map = [Cm(6.0)] * cols
 
     for r in range(rows):
+        row = table.rows[r]
+        prevent_row_break(row)
+
         for c in range(cols):
             cell = table.cell(r, c)
             text = rows_data[r][c] if c < len(rows_data[r]) else ""
             cell.text = text
+            cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
+            if c < len(width_map):
+                cell.width = width_map[c]
 
             for p in cell.paragraphs:
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                p.paragraph_format.line_spacing = 1.5
+                p.paragraph_format.keep_together = True
+                p.paragraph_format.keep_with_next = True if r < rows - 1 else False
+
                 for run in p.runs:
                     set_font_style(run, size=12)
 
             if r == 0:
+                set_cell_shading(cell, "D9D9D9")
                 for p in cell.paragraphs:
                     for run in p.runs:
                         run.font.bold = True
-
 def clean_ai_hallucinations(text):
     """
     針對 AI 輸出進行清洗，但保護 Markdown 表格區塊
@@ -646,7 +692,7 @@ exam_file = st.file_uploader("📤 上傳試卷", type=["pdf", "jpg", "png"], ke
 
 # --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
-start_btn = st.button(" 開始\n全方位審查", type="primary", use_container_width=True)
+start_btn = st.button(" 開始\n AI 審查", type="primary", use_container_width=True)
 
 # --- 進階功能區 (預設隱藏) ---
 context_files = None
@@ -931,7 +977,7 @@ if start_btn:
 ## 難易度與負擔分析
 請**只能**輸出以下 Markdown 表格，不可改標題、不可加前言、不可加註解：
 
-| 難易度 | 佔比 | 對應題號/說明 |
+| 難易度 | 對應題號 | 比重 |
 | --- | --- | --- |
 | 易 |  |  |
 | 中 |  |  |
@@ -939,9 +985,9 @@ if start_btn:
 
 硬性規定：
 1. 必須剛好三列，不可增減。
-2. 「佔比」一律用百分比表示，例如 40%。
+2. 「比重」一律用百分比表示，例如 40%。
 3. 三列百分比總和必須為 100%。
-4. 「對應題號/說明」請寫具體題號，不可只寫「略」或「多題」。
+4. 「對應題號」請寫具體題號，不可只寫「略」或「多題」。
 
 接著輸出整體作答負擔觀察：
 
