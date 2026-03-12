@@ -693,8 +693,14 @@ def render_footer():
     st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
     st.markdown('<div class="footer">Designed for 臺中市北屯區建功國小 | Powered by Gemini 3.0</div>', unsafe_allow_html=True)
 
-def check_password():
-    if st.session_state.get("password_correct", False): return True
+def check_login():
+    # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
+    if st.user.is_logged_in:
+        user_email = st.user.get("email", "")
+        st.session_state["user_email"] = user_email
+        return True
+
+    # 未登入時：顯示聲明與 Google 登入按鈕
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
@@ -703,21 +709,19 @@ def check_password():
         st.markdown("""
         **使用前請詳閱以下說明：**
         1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。**
-        2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。
-        3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
-        4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用。
+        2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。**
+        3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。**
+        4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用。**
         """)
-        password = st.text_input("請輸入學校專用通行碼", type="password")
-        if st.button("我同意聲明並登入"):
-            if password == st.secrets["APP_PASSWORD"]:
-                st.session_state["password_correct"] = True
-                st.rerun()
-            else:
-                st.error("❌ 密碼錯誤")
+        if st.button("我同意聲明並使用 Google 登入", use_container_width=True):
+            st.login("google")
+            st.stop()
+
     render_footer()
     return False
 
-if not check_password(): st.stop()
+if not check_login():
+    st.stop()
 
 # ==========================================
 # 4. 主流程與 Prompt
@@ -728,6 +732,15 @@ if "used_model_name" not in st.session_state: st.session_state.used_model_name =
 if "metadata" not in st.session_state: st.session_state.metadata = {}
 
 st.title("北屯區建功國小AI審題系統")
+
+user_email = st.session_state.get("user_email", "")
+top_col1, top_col2 = st.columns([5, 1])
+with top_col1:
+    if user_email:
+        st.caption(f"目前登入者：{user_email}")
+with top_col2:
+    if st.button("登出"):
+        st.logout()
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
