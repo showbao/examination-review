@@ -224,23 +224,8 @@ def is_main_section_header(line):
     return clean in main_headers
 
 def is_sub_section_header(line):
-    clean = normalize_sub_header_text(line)
-    sub_headers = [
-        "最優先修正 (Critical)",
-        "難度與鑑別度點評",
-        "值得讚許之處",
-        "後續優化建議",
-        "優良試題",
-        "待確認試題",
-        "真素養",
-        "假素養/待確認",
-        "通過 (無敏感議題)",
-        "潛在爭議 (具體指出問題)",
-        "閱讀負擔",
-        "圖表判讀負擔",
-        "運算負擔"
-    ]
-    return any(clean.startswith(header) for header in sub_headers)
+    canonical = canonical_sub_header(line)
+    return canonical in set(SUB_HEADER_ALIASES.values())
 
 def add_main_section_title(doc, text):
     doc.add_paragraph()
@@ -248,16 +233,13 @@ def add_main_section_title(doc, text):
     run = p.add_run(text)
     set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
 
-def add_sub_section_title(cell, text):
-
-    # 子項標題前空一行
-    spacer = cell.add_paragraph()
+def add_sub_section_title(container, text):
+    spacer = container.add_paragraph()
     spacer.paragraph_format.space_after = Pt(6)
 
-    p = cell.add_paragraph()
-    run = p.add_run(text)
+    p = container.add_paragraph()
+    run = p.add_run(decorate_sub_header(text))
     set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
-
     return p
 
 def add_bullet_to_cell(cell, text):
@@ -272,11 +254,59 @@ def add_plain_text_to_cell(cell, text):
     set_font_style(run, size=12)
     return p
 
+SUB_HEADER_ICON_MAP = {
+    "最優先修正": "🔴",
+    "最優先修正 (Critical)": "🔴",
+    "難度與鑑別度點評": "⚖️",
+    "值得讚許之處": "👍",
+    "後續優化建議": "💡",
+    "優良試題": "🟢",
+    "待確認試題": "🟡",
+    "真素養": "🟢",
+    "假素養/待確認": "🟡",
+    "通過 (無敏感議題)": "🟢",
+    "潛在爭議 (具體指出問題)": "⚠️",
+    "整體作答負擔觀察": "📌",
+    "閱讀負擔": "📖",
+    "圖表判讀負擔": "📊",
+    "運算負擔": "🧮"
+}
+
+SUB_HEADER_ALIASES = {
+    "最優先修正": "最優先修正 (Critical)",
+    "最優先修正 (Critical)": "最優先修正 (Critical)",
+    "難度與鑑別度點評": "難度與鑑別度點評",
+    "值得讚許之處": "值得讚許之處",
+    "後續優化建議": "後續優化建議",
+    "優良試題": "優良試題",
+    "待確認試題": "待確認試題",
+    "真素養": "真素養",
+    "假素養/待確認": "假素養/待確認",
+    "通過 (無敏感議題)": "通過 (無敏感議題)",
+    "潛在爭議 (具體指出問題)": "潛在爭議 (具體指出問題)",
+    "整體作答負擔觀察": "整體作答負擔觀察",
+    "閱讀負擔": "閱讀負擔",
+    "圖表判讀負擔": "圖表判讀負擔",
+    "運算負擔": "運算負擔"
+}
+
 def normalize_sub_header_text(text):
     text = clean_markdown_symbol(text.strip())
-    text = re.sub(r'^[📖📊🧮]\s*', '', text)
+    text = re.sub(r'^[📖📊🧮🔴⚖️👍💡🟢🟡⚠️📌]+\s*', '', text)
     text = re.sub(r'\s*[:：]\s*$', '', text)
     return text.strip()
+
+def canonical_sub_header(text):
+    normalized = normalize_sub_header_text(text)
+    for alias, canonical in SUB_HEADER_ALIASES.items():
+        if normalized.startswith(alias):
+            return canonical
+    return normalized
+
+def decorate_sub_header(text):
+    canonical = canonical_sub_header(text)
+    icon = SUB_HEADER_ICON_MAP.get(canonical, "")
+    return f"{icon} {canonical}".strip()
 
 def set_cell_shading(cell, fill="D9D9D9"):
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -383,42 +413,40 @@ def create_word_report(analysis_text, metadata):
     current_box_table = None
     current_box_cell = None
     current_sub_header = None
+    current_main_section = None
+    no_box_sections = {"雙向細目表核算", "難易度與負擔分析"}
 
     for raw_line in lines:
         stripped_line = raw_line.strip()
 
         if not stripped_line:
             if table_mode and table_data:
-
                 if current_box_cell is not None:
                     _render_word_table(current_box_cell, table_data)
                 else:
                     _render_word_table(doc, table_data)
-
                 table_mode = False
                 table_data = []
-
             continue
 
         clean_text = clean_markdown_symbol(stripped_line)
         clean_text = re.sub(r'\s*[:：]\s*$', '', clean_text)
 
         if is_main_section_header(stripped_line):
-
             if table_mode and table_data:
-
                 if current_box_cell is not None:
                     _render_word_table(current_box_cell, table_data)
                 else:
                     _render_word_table(doc, table_data)
-
                 table_mode = False
                 table_data = []
 
+            current_main_section = clean_text
+            current_sub_header = None
+
             add_main_section_title(doc, clean_text)
 
-            # 雙向細目表核算、難易度與負擔分析不建立外層框
-            if clean_text in ["雙向細目表核算", "難易度與負擔分析"]:
+            if clean_text in no_box_sections:
                 current_box_table = None
                 current_box_cell = None
             else:
@@ -426,69 +454,66 @@ def create_word_report(analysis_text, metadata):
                 current_box_table.style = 'Table Grid'
                 current_box_cell = current_box_table.cell(0, 0)
 
-            current_sub_header = None
             continue
+
         if is_sub_section_header(stripped_line):
-            if table_mode and table_data and current_box_cell is not None:
-                _render_word_table(current_box_cell, table_data)
+            if table_mode and table_data:
+                if current_box_cell is not None:
+                    _render_word_table(current_box_cell, table_data)
+                else:
+                    _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
-            sub_headers = [
-                "最優先修正 (Critical)",
-                "難度與鑑別度點評",
-                "值得讚許之處",
-                "後續優化建議",
-                "優良試題",
-                "待確認試題",
-                "真素養",
-                "假素養/待確認",
-                "通過 (無敏感議題)",
-                "潛在爭議 (具體指出問題)",
-                "閱讀負擔",
-                "圖表判讀負擔",
-                "運算負擔"
-            ]
-
+            matched_sub_header = canonical_sub_header(stripped_line)
             normalized_sub_text = normalize_sub_header_text(stripped_line)
-            matched_sub_header = next((h for h in sub_headers if normalized_sub_text.startswith(h)), normalized_sub_text)
             trailing_text = normalized_sub_text[len(matched_sub_header):].strip("：: ").strip()
 
-            if current_box_cell is None:
+            # 難易度與負擔分析：子標題直接寫到文件，不建立外框
+            target_container = doc if current_main_section == "難易度與負擔分析" else current_box_cell
+
+            if target_container is None and current_main_section not in no_box_sections:
                 current_box_table = doc.add_table(rows=1, cols=1)
                 current_box_table.style = 'Table Grid'
                 current_box_cell = current_box_table.cell(0, 0)
+                target_container = current_box_cell
 
-            display_header = stripped_line.strip()
-            display_header = re.sub(r'^#+\s*', '', display_header).strip()
-            display_header = re.sub(r'\s*[:：]\s*$', '', display_header)
-
-            add_sub_section_title(current_box_cell, display_header)
+            add_sub_section_title(target_container, matched_sub_header)
             current_sub_header = matched_sub_header
 
-            if trailing_text and trailing_text != matched_sub_header:
-                add_bullet_to_cell(current_box_cell, trailing_text)
+            # 避免標題與內文重複
+            if trailing_text and trailing_text != matched_sub_header and not trailing_text.startswith(matched_sub_header):
+                add_bullet_to_cell(target_container, trailing_text)
 
             continue
+
         if is_markdown_table_line(stripped_line):
             table_mode = True
             table_data.append(stripped_line)
             continue
 
-        if table_mode and table_data and current_box_cell is not None:
-            _render_word_table(current_box_cell, table_data)
+        if table_mode and table_data:
+            if current_box_cell is not None:
+                _render_word_table(current_box_cell, table_data)
+            else:
+                _render_word_table(doc, table_data)
             table_mode = False
             table_data = []
 
         if not clean_text:
             continue
 
-        # 將數字列點統一轉成小黑點內容
         clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
 
-        # 雙向細目表核算、難易度與負擔分析：表格直接插入文件，不建立外框
-        if current_box_cell is None and current_sub_header is None and not is_markdown_table_line(stripped_line):
-            add_plain_text_to_cell(doc, clean_text)
+        # 無外框章節（雙向細目表核算 / 難易度與負擔分析）直接寫到文件
+        if current_main_section in no_box_sections:
+            if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
+                add_bullet_to_cell(doc, clean_text)
+            else:
+                if current_sub_header is not None:
+                    add_bullet_to_cell(doc, clean_text)
+                else:
+                    add_plain_text_to_cell(doc, clean_text)
             continue
 
         if current_box_cell is None:
@@ -503,7 +528,7 @@ def create_word_report(analysis_text, metadata):
                 add_bullet_to_cell(current_box_cell, clean_text)
             else:
                 add_plain_text_to_cell(current_box_cell, clean_text)
-
+                
     if table_mode and table_data:
         if current_box_cell is not None:
             _render_word_table(current_box_cell, table_data)
@@ -566,11 +591,10 @@ def _render_word_table(container, data):
     header_row = rows_data[0] if rows_data else []
     header_texts = [str(x).strip() for x in header_row]
 
-    # 欄寬設定
     if header_texts == ["認知向度", "對應題號", "比重"]:
         width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
-    elif header_texts == ["難易度", "對應題號", "比重"]:
-        width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
+    elif header_texts == ["難易度", "佔比", "對應題號"] or header_texts == ["難易度", "佔比", "對應題號/說明"]:
+        width_map = [Cm(3.0), Cm(3.0), Cm(11.5)]
     else:
         width_map = [Cm(6.0)] * cols
 
@@ -601,6 +625,7 @@ def _render_word_table(container, data):
                 for p in cell.paragraphs:
                     for run in p.runs:
                         run.font.bold = True
+                        
 def clean_ai_hallucinations(text):
     """
     針對 AI 輸出進行清洗，但保護 Markdown 表格區塊
@@ -887,7 +912,7 @@ if start_btn:
 請嚴格依照以下順序輸出 Markdown 報告：
 
 ## 總結與建議
-### 🔴 最優先修正
+### 🔴 最優先修正 (Critical)
 若存在重大錯誤（如答案錯誤、題意錯誤、無法作答題目），請列出並說明；若無，請寫「無重大錯誤」。
 
 ### ⚖️ 難度與鑑別度點評
@@ -939,7 +964,7 @@ if start_btn:
 - 未整合概念
 (**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點都必須包含「題號 + 題目錨點 + 具體說明原因。)
 
-# 公平性與敏感度審查
+## 公平性與敏感度審查
 
 評估每一題時，請從以下兩個面向進行內部檢查：
 1.文化公平：檢查是否涉及文化偏見或刻板印象（如性別、種族、語文、文化、職業等）。
