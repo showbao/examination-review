@@ -238,18 +238,21 @@ def add_sub_section_title(container, text):
     spacer.paragraph_format.space_after = Pt(6)
 
     p = container.add_paragraph()
-    run = p.add_run(decorate_sub_header(text))
-    set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
+    p.paragraph_format.left_indent = Cm(0.75)   # 子標內縮
+    run = p.add_run(canonical_sub_header(text))  # 不再顯示圖示
+    set_font_style(run, size=13, bold=True, color=RGBColor(111, 133, 158))
     return p
 
-def add_bullet_to_cell(cell, text):
-    p = cell.add_paragraph(style='List Bullet')
+def add_bullet_to_cell(container, text):
+    p = container.add_paragraph(style='List Bullet')
+    p.paragraph_format.left_indent = Cm(1.0)
     run = p.add_run(text)
     set_font_style(run, size=12)
     return p
 
-def add_plain_text_to_cell(cell, text):
-    p = cell.add_paragraph()
+def add_plain_text_to_cell(container, text):
+    p = container.add_paragraph()
+    p.paragraph_format.left_indent = Cm(0.75)
     run = p.add_run(text)
     set_font_style(run, size=12)
     return p
@@ -273,8 +276,8 @@ SUB_HEADER_ICON_MAP = {
 }
 
 SUB_HEADER_ALIASES = {
-    "最優先修正": "最優先修正 (Critical)",
-    "最優先修正 (Critical)": "最優先修正 (Critical)",
+    "最優先修正": "最優先修正",
+    "最優先修正 (Critical)": "最優先修正",
     "難度與鑑別度點評": "難度與鑑別度點評",
     "值得讚許之處": "值得讚許之處",
     "後續優化建議": "後續優化建議",
@@ -294,10 +297,22 @@ def normalize_sub_header_text(text):
     text = clean_markdown_symbol(text.strip())
     text = re.sub(r'^[📖📊🧮🔴⚖️👍💡🟢🟡⚠️📌]+\s*', '', text)
     text = re.sub(r'\s*[:：]\s*$', '', text)
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 def canonical_sub_header(text):
     normalized = normalize_sub_header_text(text)
+
+    # 優先處理容易變形的標題
+    if normalized.startswith("最優先修正"):
+        return "最優先修正"
+    if normalized.startswith("難度與鑑別度點評"):
+        return "難度與鑑別度點評"
+    if normalized.startswith("值得讚許之處"):
+        return "值得讚許之處"
+    if normalized.startswith("後續優化建議"):
+        return "後續優化建議"
+
     for alias, canonical in SUB_HEADER_ALIASES.items():
         if normalized.startswith(alias):
             return canonical
@@ -410,21 +425,21 @@ def create_word_report(analysis_text, metadata):
     table_mode = False
     table_data = []
 
-    current_box_table = None
-    current_box_cell = None
+    # --- 內容解析（取消分析章節外框版）---
+    analysis_text = normalize_analysis_tables(analysis_text)
+    lines = analysis_text.split('\n')
+    table_mode = False
+    table_data = []
+
     current_sub_header = None
     current_main_section = None
-    no_box_sections = {"雙向細目表核算", "難易度與負擔分析"}
 
     for raw_line in lines:
         stripped_line = raw_line.strip()
 
         if not stripped_line:
             if table_mode and table_data:
-                if current_box_cell is not None:
-                    _render_word_table(current_box_cell, table_data)
-                else:
-                    _render_word_table(doc, table_data)
+                _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
             continue
@@ -434,34 +449,18 @@ def create_word_report(analysis_text, metadata):
 
         if is_main_section_header(stripped_line):
             if table_mode and table_data:
-                if current_box_cell is not None:
-                    _render_word_table(current_box_cell, table_data)
-                else:
-                    _render_word_table(doc, table_data)
+                _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
             current_main_section = clean_text
             current_sub_header = None
-
             add_main_section_title(doc, clean_text)
-
-            if clean_text in no_box_sections:
-                current_box_table = None
-                current_box_cell = None
-            else:
-                current_box_table = doc.add_table(rows=1, cols=1)
-                current_box_table.style = 'Table Grid'
-                current_box_cell = current_box_table.cell(0, 0)
-
             continue
 
         if is_sub_section_header(stripped_line):
             if table_mode and table_data:
-                if current_box_cell is not None:
-                    _render_word_table(current_box_cell, table_data)
-                else:
-                    _render_word_table(doc, table_data)
+                _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
 
@@ -469,21 +468,12 @@ def create_word_report(analysis_text, metadata):
             normalized_sub_text = normalize_sub_header_text(stripped_line)
             trailing_text = normalized_sub_text[len(matched_sub_header):].strip("：: ").strip()
 
-            # 難易度與負擔分析：子標題直接寫到文件，不建立外框
-            target_container = doc if current_main_section == "難易度與負擔分析" else current_box_cell
-
-            if target_container is None and current_main_section not in no_box_sections:
-                current_box_table = doc.add_table(rows=1, cols=1)
-                current_box_table.style = 'Table Grid'
-                current_box_cell = current_box_table.cell(0, 0)
-                target_container = current_box_cell
-
-            add_sub_section_title(target_container, matched_sub_header)
+            add_sub_section_title(doc, matched_sub_header)
             current_sub_header = matched_sub_header
 
             # 避免標題與內文重複
             if trailing_text and trailing_text != matched_sub_header and not trailing_text.startswith(matched_sub_header):
-                add_bullet_to_cell(target_container, trailing_text)
+                add_bullet_to_cell(doc, trailing_text)
 
             continue
 
@@ -493,33 +483,26 @@ def create_word_report(analysis_text, metadata):
             continue
 
         if table_mode and table_data:
-            if current_box_cell is not None:
-                _render_word_table(current_box_cell, table_data)
-            else:
-                _render_word_table(doc, table_data)
+            _render_word_table(doc, table_data)
             table_mode = False
             table_data = []
 
         if not clean_text:
             continue
 
+        # 將數字列點統一轉成小黑點內容
         clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
 
-        # 無外框章節（雙向細目表核算 / 難易度與負擔分析）直接寫到文件
-        if current_main_section in no_box_sections:
-            if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
+        if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
+            add_bullet_to_cell(doc, clean_text)
+        else:
+            if current_sub_header is not None:
                 add_bullet_to_cell(doc, clean_text)
             else:
-                if current_sub_header is not None:
-                    add_bullet_to_cell(doc, clean_text)
-                else:
-                    add_plain_text_to_cell(doc, clean_text)
-            continue
+                add_plain_text_to_cell(doc, clean_text)
 
-        if current_box_cell is None:
-            current_box_table = doc.add_table(rows=1, cols=1)
-            current_box_table.style = 'Table Grid'
-            current_box_cell = current_box_table.cell(0, 0)
+    if table_mode and table_data:
+        _render_word_table(doc, table_data)
 
         if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
             add_bullet_to_cell(current_box_cell, clean_text)
