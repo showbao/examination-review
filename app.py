@@ -254,7 +254,7 @@ def add_bullet_to_cell(container, text):
 
     run_text = p.add_run(text)
     set_font_style(run_text, size=12)
-    return p p
+    return p
 
 def add_plain_text_to_cell(container, text):
     p = container.add_paragraph()
