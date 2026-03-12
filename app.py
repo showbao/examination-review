@@ -9,7 +9,7 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMEN
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
