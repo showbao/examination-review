@@ -224,8 +224,15 @@ def is_main_section_header(line):
     return clean in main_headers
 
 def is_sub_section_header(line):
-    canonical = canonical_sub_header(line)
-    return canonical in set(SUB_HEADER_ALIASES.values())
+    normalized = normalize_sub_header_text(line)
+
+    allowed_headers = set(SUB_HEADER_ALIASES.values())
+
+    for header in allowed_headers:
+        if re.fullmatch(rf'{re.escape(header)}\s*[：:]?\s*', normalized):
+            return True
+
+    return False
 
 def add_main_section_title(doc, text):
     doc.add_paragraph()
@@ -329,7 +336,12 @@ def normalize_compare_text(text):
     text = re.sub(r'\s+', '', text)
     text = re.sub(r'[：:，,。．、；;（）()]', '', text)
     return text.strip()
-    
+
+TEXT_MODE_SUBHEADERS = {
+    "閱讀負擔",
+    "圖表判讀負擔",
+    "運算負擔"
+}    
 def decorate_sub_header(text):
     canonical = canonical_sub_header(text)
     icon = SUB_HEADER_ICON_MAP.get(canonical, "")
@@ -477,16 +489,9 @@ def create_word_report(analysis_text, metadata):
                 table_data = []
 
             matched_sub_header = canonical_sub_header(stripped_line)
-            normalized_sub_text = normalize_sub_header_text(stripped_line)
-            trailing_text = normalized_sub_text[len(matched_sub_header):].strip("：: ").strip()
 
             add_sub_section_title(doc, matched_sub_header)
             current_sub_header = matched_sub_header
-
-            # 同一行若標題後面還有內容，才補成第一個列點
-            if trailing_text and trailing_text != matched_sub_header and not trailing_text.startswith(matched_sub_header):
-                add_bullet_to_cell(doc, trailing_text)
-
             continue
 
         if is_markdown_table_line(stripped_line):
@@ -505,7 +510,30 @@ def create_word_report(analysis_text, metadata):
         # 將數字列點統一轉成小黑點內容
         clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
 
-        # 若內文又以目前子標題開頭，去除重複標題字樣
+        # --- 副標文字模式：閱讀負擔 / 圖表判讀負擔 / 運算負擔 ---
+        if current_sub_header in TEXT_MODE_SUBHEADERS:
+            # 若內文又以目前副標開頭，去除重複標題字樣
+            normalized_clean = normalize_compare_text(clean_text)
+            normalized_header = normalize_compare_text(current_sub_header)
+
+            if normalized_clean.startswith(normalized_header):
+                clean_text = re.sub(
+                    rf'^\s*{re.escape(current_sub_header)}\s*[：:，,。．、；;（）()]*\s*',
+                    '',
+                    clean_text
+                ).strip()
+
+                if not clean_text:
+                    continue
+
+            # 若 AI 仍以列點開頭，移除列點符號後當一般文字輸出
+            clean_text = re.sub(r'^[•\*\-]\s*', '', clean_text).strip()
+
+            if clean_text:
+                add_plain_text_to_cell(doc, clean_text)
+            continue
+
+        # --- 一般副標 / 一般內容 ---
         if current_sub_header is not None:
             normalized_clean = normalize_compare_text(clean_text)
             normalized_header = normalize_compare_text(current_sub_header)
