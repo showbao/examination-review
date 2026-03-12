@@ -235,6 +235,9 @@ def is_sub_section_header(line):
         "假素養/待確認",
         "通過 (無敏感議題)",
         "潛在爭議 (具體指出問題)"
+        "閱讀負擔"
+        "圖表判讀負擔"
+        "運算負擔"
     ]
     return any(clean.startswith(header) for header in sub_headers)
 
@@ -414,7 +417,7 @@ def create_word_report(analysis_text, metadata):
                 table_data = []
 
             sub_headers = [
-                "最優先修正 (Critical)",
+                "最優先修正",
                 "難度與鑑別度點評",
                 "值得讚許之處",
                 "後續優化建議",
@@ -424,6 +427,9 @@ def create_word_report(analysis_text, metadata):
                 "假素養/待確認",
                 "通過 (無敏感議題)",
                 "潛在爭議 (具體指出問題)"
+                "閱讀負擔"
+                "圖表判讀負擔"
+                "運算負擔"
             ]
 
             matched_sub_header = next((h for h in sub_headers if clean_text.startswith(h)), clean_text)
@@ -939,15 +945,13 @@ if start_btn:
 
 接著輸出整體作答負擔觀察：
 
-### 整體作答負擔觀察
-
-## 📖 閱讀負擔  
+### 📖 閱讀負擔  
 簡述試卷整體閱讀量是否適中，是否有長題幹或大量閱讀題。
 
-## 📊 圖表判讀負擔  
+### 📊 圖表判讀負擔  
 分析是否需要解讀圖表、數據或圖像資訊。
 
-## 🧮 運算負擔  
+### 🧮 運算負擔  
 分析是否需要多步驟計算或複雜推理。
 
 若整體負擔適中，可簡要說明即可，不需過度分析。
