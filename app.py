@@ -146,9 +146,9 @@ def clean_markdown_symbol(text):
     
     # 移除開頭列表符號
     text = re.sub(r'^[\*\-]\s+', '', text)
-    
+   
     # 移除燈號
-    for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️"]:
+    for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️", "📖", "📊", "🧮"]:
         text = text.replace(icon, "")
     
     text = text.lstrip("*- ")
@@ -225,7 +225,7 @@ def is_main_section_header(line):
 def is_sub_section_header(line):
     clean = clean_markdown_symbol(line.strip())
     sub_headers = [
-        "最優先修正 (Critical)",
+        "最優先修正",
         "難度與鑑別度點評",
         "值得讚許之處",
         "後續優化建議",
