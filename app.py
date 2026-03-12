@@ -801,7 +801,7 @@ if start_btn:
                     target_model_name = get_best_flash_model(api_key)
                     routing_msg = "📝 文科試卷分析"
 
-            status_box.info(f"🔄 AI 審查中 ... {routing_msg}")
+            status_box.info(f"🔄 AI 審查中 ... ")
 
             # 3. 資訊提取 (Metadata)
             flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
