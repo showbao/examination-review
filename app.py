@@ -287,7 +287,7 @@ def set_cell_shading(cell, fill="D9D9D9"):
 def prevent_row_break(row):
     tr_pr = row._tr.get_or_add_trPr()
     cant_split = OxmlElement('w:cantSplit')
-    tr_pr.append(cant_split) p
+    tr_pr.append(cant_split) 
 
 def create_word_report(analysis_text, metadata):
     doc = Document()
