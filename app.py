@@ -589,7 +589,7 @@ def _render_word_table(container, data):
 
     if header_texts == ["認知向度", "對應題號", "比重"]:
         width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
-    elif header_texts == ["難易度", "對應題號"", "比重"]:
+    elif header_texts == ["難易度", "對應題號", "比重"]:
         width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
     else:
         width_map = [Cm(6.0)] * cols
