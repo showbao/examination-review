@@ -232,6 +232,7 @@ def add_main_section_title(doc, text):
     p = doc.add_paragraph()
     run = p.add_run(text)
     set_font_style(run, size=16, bold=True, color=RGBColor(91, 124, 153))
+    run.font.underline = True
 
 def add_sub_section_title(container, text):
     spacer = container.add_paragraph()
@@ -244,11 +245,16 @@ def add_sub_section_title(container, text):
     return p
 
 def add_bullet_to_cell(container, text):
-    p = container.add_paragraph(style='List Bullet')
+    p = container.add_paragraph()
     p.paragraph_format.left_indent = Cm(1.0)
-    run = p.add_run(text)
-    set_font_style(run, size=12)
-    return p
+    p.paragraph_format.first_line_indent = Cm(0)
+
+    run_bullet = p.add_run("• ")
+    set_font_style(run_bullet, size=12)
+
+    run_text = p.add_run(text)
+    set_font_style(run_text, size=12)
+    return p p
 
 def add_plain_text_to_cell(container, text):
     p = container.add_paragraph()
@@ -471,7 +477,7 @@ def create_word_report(analysis_text, metadata):
             add_sub_section_title(doc, matched_sub_header)
             current_sub_header = matched_sub_header
 
-            # 避免標題與內文重複
+            # 同一行若標題後面還有內容，才補成第一個列點
             if trailing_text and trailing_text != matched_sub_header and not trailing_text.startswith(matched_sub_header):
                 add_bullet_to_cell(doc, trailing_text)
 
@@ -493,6 +499,12 @@ def create_word_report(analysis_text, metadata):
         # 將數字列點統一轉成小黑點內容
         clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
 
+        # 若內文又以目前子標題開頭，去除重複標題字樣
+        if current_sub_header is not None and clean_text.startswith(current_sub_header):
+            clean_text = clean_text[len(current_sub_header):].lstrip("：:，,。 ").strip()
+            if not clean_text:
+                continue
+
         if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
             add_bullet_to_cell(doc, clean_text)
         else:
@@ -503,21 +515,7 @@ def create_word_report(analysis_text, metadata):
 
     if table_mode and table_data:
         _render_word_table(doc, table_data)
-
-        if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
-            add_bullet_to_cell(current_box_cell, clean_text)
-        else:
-            if current_sub_header is not None:
-                add_bullet_to_cell(current_box_cell, clean_text)
-            else:
-                add_plain_text_to_cell(current_box_cell, clean_text)
-                
-    if table_mode and table_data:
-        if current_box_cell is not None:
-            _render_word_table(current_box_cell, table_data)
-        else:
-            _render_word_table(doc, table_data)
-
+        
     # 評量診斷與補救教學
     add_main_section_title(doc, "評量診斷與補救教學")
 
