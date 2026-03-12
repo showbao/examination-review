@@ -323,7 +323,13 @@ def canonical_sub_header(text):
         if normalized.startswith(alias):
             return canonical
     return normalized
-
+    
+def normalize_compare_text(text):
+    text = clean_markdown_symbol(text.strip())
+    text = re.sub(r'\s+', '', text)
+    text = re.sub(r'[：:，,。．、；;（）()]', '', text)
+    return text.strip()
+    
 def decorate_sub_header(text):
     canonical = canonical_sub_header(text)
     icon = SUB_HEADER_ICON_MAP.get(canonical, "")
@@ -500,10 +506,19 @@ def create_word_report(analysis_text, metadata):
         clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
 
         # 若內文又以目前子標題開頭，去除重複標題字樣
-        if current_sub_header is not None and clean_text.startswith(current_sub_header):
-            clean_text = clean_text[len(current_sub_header):].lstrip("：:，,。 ").strip()
-            if not clean_text:
-                continue
+        if current_sub_header is not None:
+            normalized_clean = normalize_compare_text(clean_text)
+            normalized_header = normalize_compare_text(current_sub_header)
+
+            if normalized_clean.startswith(normalized_header):
+                clean_text = re.sub(
+                    rf'^\s*{re.escape(current_sub_header)}\s*[：:，,。．、；;（）()]*\s*',
+                    '',
+                    clean_text
+                ).strip()
+
+                if not clean_text:
+                    continue
 
         if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
             add_bullet_to_cell(doc, clean_text)
@@ -574,8 +589,8 @@ def _render_word_table(container, data):
 
     if header_texts == ["認知向度", "對應題號", "比重"]:
         width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
-    elif header_texts == ["難易度", "佔比", "對應題號"] or header_texts == ["難易度", "佔比", "對應題號/說明"]:
-        width_map = [Cm(3.0), Cm(3.0), Cm(11.5)]
+    elif header_texts == ["難易度", "對應題號"", "比重"]:
+        width_map = [Cm(4.0), Cm(10.0), Cm(4.0)]
     else:
         width_map = [Cm(6.0)] * cols
 
