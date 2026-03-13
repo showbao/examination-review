@@ -785,6 +785,12 @@ def check_login():
     render_footer()
     return False
 
+if "logout" in st.query_params:
+    st.session_state["login_logged"] = False
+    st.session_state["user_email"] = ""
+    st.query_params.clear()
+    st.logout()
+
 if not check_login():
     st.stop()
 
@@ -799,55 +805,16 @@ if "metadata" not in st.session_state: st.session_state.metadata = {}
 st.title("北屯區建功國小AI審題系統")
 user_email = st.session_state.get("user_email", "")
 
-st.markdown("""
-<style>
-/* 只覆蓋 logout_btn 這顆按鈕 */
-.st-key-logout_btn button {
-    background: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    min-height: auto !important;
-    height: auto !important;
-    width: auto !important;
-    color: #5B7C99 !important;
-    font-size: 0.95rem !important;
-    font-weight: normal !important;
-    text-decoration: underline !important;
-    display: inline !important;
-}
-
-.st-key-logout_btn button:hover {
-    background: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    color: #5B7C99 !important;
-    transform: none !important;
-}
-
-.st-key-logout_btn button p {
-    font-size: 0.95rem !important;
-    margin: 0 !important;
-    line-height: 1.2 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 if user_email:
-    info_col1, info_col2, info_col3 = st.columns([0.34, 0.08, 0.58])
-
-    with info_col1:
-        st.markdown(
-            f'<div style="font-size:0.95rem;color:#666;margin-top:6px;">目前登入者：{user_email}</div>',
-            unsafe_allow_html=True
-        )
-
-    with info_col2:
-        if st.button("[登出]", key="logout_btn"):
-            st.session_state["login_logged"] = False
-            st.session_state["user_email"] = ""
-            st.logout()
+    st.markdown(
+f"""
+<div style="margin-top:6px; margin-bottom:10px; font-size:0.95rem; color:#666666;">
+目前登入者：{user_email}
+<a href="?logout=1" target="_self" style="margin-left:8px; color:#5B7C99; text-decoration:none;">[登出]</a>
+</div>
+""",
+        unsafe_allow_html=True
+    )
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
