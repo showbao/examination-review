@@ -695,6 +695,18 @@ def render_footer():
     st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
     st.markdown('<div class="footer">Designed for 臺中市北屯區建功國小 | Powered by Gemini 3.0</div>', unsafe_allow_html=True)
 
+def load_whitelist():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    )
+
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("whitelist")
+
+    emails = sheet.col_values(1)
+    return [e.strip().lower() for e in emails if e]
+
 def check_login():
     # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
     if st.user.is_logged_in:
@@ -734,18 +746,6 @@ def check_login():
 
 if not check_login():
     st.stop()
-    
-def load_whitelist():
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
-    )
-
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("whitelist")
-
-    emails = sheet.col_values(1)
-    return [e.strip().lower() for e in emails if e]
 
 # ==========================================
 # 4. 主流程與 Prompt
