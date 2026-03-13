@@ -786,32 +786,34 @@ if "metadata" not in st.session_state: st.session_state.metadata = {}
 
 st.title("北屯區建功國小AI審題系統")
 
-st.markdown("""
-<style>
-div[data-testid="stHorizontalBlock"] div.stButton > button[kind="secondary"] {
-    padding: 4px 10px !important;
-    font-size: 0.9rem !important;
-    height: auto !important;
-    width: auto !important;
-    min-height: 0 !important;
-    border-radius: 8px !important;
-    margin-top: 0 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 user_email = st.session_state.get("user_email", "")
 if user_email:
-    info_col1, info_col2 = st.columns([6, 1])
+    st.markdown("""
+    <style>
+    div[data-testid="column"]:has(button[kind="secondary"]) div.stButton > button {
+        padding: 0.2rem 0.7rem !important;
+        font-size: 0.85rem !important;
+        line-height: 1.2 !important;
+        border-radius: 8px !important;
+        min-height: 2rem !important;
+        width: auto !important;
+        margin-top: 0 !important;
+    }
+    div[data-testid="column"]:has(button[kind="secondary"]) {
+        display: flex !important;
+        align-items: center !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    info_col1, info_col2 = st.columns([12, 2])
     with info_col1:
         st.caption(f"目前登入者：{user_email}")
     with info_col2:
         if st.button("登出", key="logout_btn"):
+            st.session_state["login_logged"] = False
+            st.session_state["user_email"] = ""
             st.logout()
-
-if user_email:
-    if st.button("測試寫入 log"):
-        log_usage(user_email, "test_log")
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
