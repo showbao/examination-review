@@ -756,7 +756,7 @@ def check_login():
 
     btn_col1, btn_col2, btn_col3 = st.columns([1, 2, 1])
     with btn_col2:
-        if st.button("我同意聲明並使用 Google 登入", use_container_width=True):
+        if st.button("我同意聲明並使用 建功國小信箱 登入", use_container_width=True):
             st.login()
             st.stop()
 
