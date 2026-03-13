@@ -12,6 +12,8 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
@@ -560,7 +562,9 @@ def create_word_report(analysis_text, metadata):
 
     if table_mode and table_data:
         _render_word_table(doc, table_data)
-        
+
+    doc.add_page_break()
+
     # 評量診斷與補救教學
     add_main_section_title(doc, "評量診斷與補救教學")
 
@@ -708,16 +712,20 @@ def load_whitelist():
     return [e.strip().lower() for e in emails if e]
 
 def log_usage(email, action):
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-    )
+    try:
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
 
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("logs")
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("logs")
 
-    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-    sheet.append_row([email, action, now_str])
+        now_str = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([email, action, now_str])
+
+    except Exception as e:
+        st.error(f"❌ log 寫入失敗：{e}")
 
 def check_login():
     # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
@@ -730,6 +738,9 @@ def check_login():
 
         if user_email not in whitelist:
             st.error("❌ 此帳號未被授權使用本系統")
+            st.info("請先登出，再使用白名單帳號重新登入。")
+            if st.button("登出並重新登入", key="unauthorized_logout"):
+                st.logout()
             st.stop()
 
         # 同一次登入只記一次 login
@@ -775,14 +786,32 @@ if "metadata" not in st.session_state: st.session_state.metadata = {}
 
 st.title("北屯區建功國小AI審題系統")
 
+st.markdown("""
+<style>
+div[data-testid="stHorizontalBlock"] div.stButton > button[kind="secondary"] {
+    padding: 4px 10px !important;
+    font-size: 0.9rem !important;
+    height: auto !important;
+    width: auto !important;
+    min-height: 0 !important;
+    border-radius: 8px !important;
+    margin-top: 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 user_email = st.session_state.get("user_email", "")
-top_col1, top_col2 = st.columns([5, 1])
-with top_col1:
-    if user_email:
+if user_email:
+    info_col1, info_col2 = st.columns([6, 1])
+    with info_col1:
         st.caption(f"目前登入者：{user_email}")
-with top_col2:
-    if st.button("登出"):
-        st.logout()
+    with info_col2:
+        if st.button("登出", key="logout_btn"):
+            st.logout()
+
+if user_email:
+    if st.button("測試寫入 log"):
+        log_usage(user_email, "test_log")
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
