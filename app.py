@@ -785,8 +785,8 @@ def check_login():
     render_footer()
     return False
 
-    if not check_login():
-        st.stop()
+if not check_login():
+    st.stop()
 
 # ==========================================
 # 4. 主流程與 Prompt
