@@ -713,9 +713,9 @@ def check_login():
         3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。**
         4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用。**
         """)
-        if st.button("我同意聲明並使用 Google 登入", use_container_width=True):
-            st.login("google")
-            st.stop()
+    if st.button("我同意聲明並使用 Google 登入", use_container_width=True):
+        st.login()
+        st.stop()
 
     render_footer()
     return False
