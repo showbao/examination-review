@@ -712,13 +712,18 @@ def load_whitelist():
     client = get_gspread_client()
     sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("whitelist")
 
-    emails = sheet.col_values(1)
-    normalized = [
-        e.strip().lower()
-        for e in emails
-        if e and e.strip() and e.strip().lower() != "email"
-    ]
-    return normalized
+    rows = sheet.get_all_records()
+
+    whitelist = {}
+
+    for row in rows:
+        email = row.get("email", "").strip().lower()
+        name = row.get("name", "").strip()
+
+        if email:
+            whitelist[email] = name
+
+    return whitelist
 
 def log_usage(email, action):
     try:
@@ -747,6 +752,9 @@ def check_login():
                 st.session_state["user_email"] = ""
                 st.logout()
             st.stop()
+
+        teacher_name = whitelist[user_email]
+        st.session_state["teacher_name"] = teacher_name
 
         if not st.session_state.get("login_logged", False):
             log_usage(user_email, "login")
