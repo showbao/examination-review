@@ -790,41 +790,30 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "used_model_name" not in st.session_state: st.session_state.used_model_name = ""
 if "metadata" not in st.session_state: st.session_state.metadata = {}
 
-st.title("北屯區建功國小AI審題系統")
-
 user_email = st.session_state.get("user_email", "")
 if user_email:
-st.markdown(
-f"""
-<div style="
-display:flex;
-align-items:center;
-gap:8px;
-margin-top:-6px;
-margin-bottom:10px;
-">
+    st.markdown(
+    f"""
+    <div style="display:flex;align-items:center;gap:8px;margin-top:-6px;margin-bottom:10px;">
+        <span style="font-size:0.95rem;color:#666;">
+        目前登入者：{user_email}
+        </span>
 
-<span style="font-size:0.95rem;color:#666;">
-目前登入者：{user_email}
-</span>
-
-<a href="?logout=1"
-style="
-padding:3px 9px;
-font-size:0.8rem;
-border:1px solid #ddd;
-border-radius:7px;
-text-decoration:none;
-color:#5B7C99;
-background:#fff;
-">
-登出
-</a>
-
-</div>
-""",
-unsafe_allow_html=True
-)
+        <a href="?logout=1"
+        style="
+        padding:3px 9px;
+        font-size:0.8rem;
+        border:1px solid #ddd;
+        border-radius:7px;
+        text-decoration:none;
+        color:#5B7C99;
+        background:#fff;">
+        登出
+        </a>
+    </div>
+    """,
+    unsafe_allow_html=True
+    )
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
