@@ -785,6 +785,12 @@ def check_login():
     render_footer()
     return False
 
+if "logout" in st.query_params:
+    st.session_state["login_logged"] = False
+    st.session_state["user_email"] = ""
+    st.query_params.clear()
+    st.logout()
+
 if not check_login():
     st.stop()
 
@@ -799,32 +805,23 @@ if "metadata" not in st.session_state: st.session_state.metadata = {}
 st.title("北屯區建功國小AI審題系統")
 user_email = st.session_state.get("user_email", "")
 
-st.markdown("""
-<style>
-/* 只縮小 logout_btn 所在欄位內的按鈕 */
-div[data-testid="column"] div.stButton > button[kind="secondary"] {
-    padding: 2px 8px !important;
-    font-size: 0.78rem !important;
-    line-height: 1.1 !important;
-    min-height: 1.8rem !important;
-    height: auto !important;
-    width: auto !important;
-    border-radius: 7px !important;
-    box-shadow: none !important;
-    margin-top: 0 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 if user_email:
-    info_col1, info_col2, info_col3 = st.columns([0.34, 0.08, 0.58])
-    with info_col1:
-        st.caption(f"目前登入者：{user_email}")
-    with info_col2:
-        if st.button("登出", key="logout_btn"):
-            st.session_state["login_logged"] = False
-            st.session_state["user_email"] = ""
-            st.logout()
+    st.markdown(
+        f"""
+<span style="font-size:0.95rem;color:#666;">
+目前登入者：{user_email}
+</span>
+<a href="?logout=1" style="
+margin-left:10px;
+font-size:0.9rem;
+text-decoration:none;
+color:#5B7C99;
+">
+[登出]
+</a>
+""",
+        unsafe_allow_html=True
+    )
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
