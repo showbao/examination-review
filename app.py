@@ -785,12 +785,6 @@ def check_login():
     render_footer()
     return False
 
-if "logout" in st.query_params:
-    st.session_state["login_logged"] = False
-    st.session_state["user_email"] = ""
-    st.query_params.clear()
-    st.logout()
-
 if not check_login():
     st.stop()
 
@@ -805,23 +799,54 @@ if "metadata" not in st.session_state: st.session_state.metadata = {}
 st.title("北屯區建功國小AI審題系統")
 user_email = st.session_state.get("user_email", "")
 
+st.markdown("""
+<style>
+.inline-user-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: -6px;
+    margin-bottom: 10px;
+}
+.inline-user-row .user-email {
+    font-size: 0.95rem;
+    color: #666666;
+}
+div[data-testid="stButton"] button[key="text_logout_btn"] {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    width: auto !important;
+    color: #5B7C99 !important;
+    font-size: 0.9rem !important;
+    font-weight: normal !important;
+    text-decoration: underline !important;
+}
+div[data-testid="stButton"] button[key="text_logout_btn"]:hover {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #5B7C99 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 if user_email:
-    st.markdown(
-        f"""
-<span style="font-size:0.95rem;color:#666;">
-目前登入者：{user_email}
-</span>
-<a href="?logout=1" style="
-margin-left:10px;
-font-size:0.9rem;
-text-decoration:none;
-color:#5B7C99;
-">
-[登出]
-</a>
-""",
-        unsafe_allow_html=True
-    )
+    col1, col2, col3 = st.columns([0.32, 0.05, 0.63])
+    with col1:
+        st.markdown(
+            f'<div class="inline-user-row"><span class="user-email">目前登入者：{user_email}</span></div>',
+            unsafe_allow_html=True
+        )
+    with col2:
+        if st.button("[登出]", key="text_logout_btn"):
+            st.session_state["login_logged"] = False
+            st.session_state["user_email"] = ""
+            st.logout()
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
