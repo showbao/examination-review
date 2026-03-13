@@ -97,7 +97,8 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 # 1. 系統全域設定 (Global Config)
 # ==========================================
 
-ENABLE_ADVANCED_FEATURES = False 
+ENABLE_ADVANCED_FEATURES = False
+ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"   # ← 請改成你們學校真正的網域
 
 # ==========================================
 # 2. 輔助函式：模型管理與 Word 生成
@@ -707,24 +708,6 @@ def get_gspread_client():
     )
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=300)
-def load_whitelist():
-    client = get_gspread_client()
-    sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("whitelist")
-
-    rows = sheet.get_all_records()
-
-    whitelist = {}
-
-    for row in rows:
-        email = row.get("email", "").strip().lower()
-        name = row.get("name", "").strip()
-
-        if email:
-            whitelist[email] = name
-
-    return whitelist
-
 def log_usage(email, action):
     try:
         client = get_gspread_client()
@@ -742,19 +725,14 @@ def check_login():
         user_email = st.user.get("email", "").strip().lower()
         st.session_state["user_email"] = user_email
 
-        whitelist = load_whitelist()
-
-        if user_email not in whitelist:
+        if not user_email.endswith(ALLOWED_EMAIL_DOMAIN):
             st.error("❌ 此帳號未被授權使用本系統")
-            st.info("請先登出，再使用白名單帳號重新登入。")
+            st.info(f"本系統僅限 {ALLOWED_EMAIL_DOMAIN} 網域帳號使用。")
             if st.button("登出並重新登入", key="unauthorized_logout"):
                 st.session_state["login_logged"] = False
                 st.session_state["user_email"] = ""
                 st.logout()
             st.stop()
-
-        teacher_name = whitelist[user_email]
-        st.session_state["teacher_name"] = teacher_name
 
         if not st.session_state.get("login_logged", False):
             log_usage(user_email, "login")
