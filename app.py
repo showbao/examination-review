@@ -801,39 +801,53 @@ user_email = st.session_state.get("user_email", "")
 
 st.markdown("""
 <style>
-.inline-user-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: -6px;
-    margin-bottom: 10px;
-}
-.inline-user-row .user-email {
-    font-size: 0.95rem;
-    color: #666666;
-}
-div[data-testid="stButton"] button[key="text_logout_btn"] {
+/* 只覆蓋 logout_btn 這顆按鈕 */
+.st-key-logout_btn button {
     background: none !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
     margin: 0 !important;
+    min-height: auto !important;
     height: auto !important;
-    min-height: 0 !important;
     width: auto !important;
     color: #5B7C99 !important;
-    font-size: 0.9rem !important;
+    font-size: 0.95rem !important;
     font-weight: normal !important;
     text-decoration: underline !important;
+    display: inline !important;
 }
-div[data-testid="stButton"] button[key="text_logout_btn"]:hover {
+
+.st-key-logout_btn button:hover {
     background: none !important;
     border: none !important;
     box-shadow: none !important;
     color: #5B7C99 !important;
+    transform: none !important;
+}
+
+.st-key-logout_btn button p {
+    font-size: 0.95rem !important;
+    margin: 0 !important;
+    line-height: 1.2 !important;
 }
 </style>
 """, unsafe_allow_html=True)
+
+if user_email:
+    info_col1, info_col2, info_col3 = st.columns([0.34, 0.08, 0.58])
+
+    with info_col1:
+        st.markdown(
+            f'<div style="font-size:0.95rem;color:#666;margin-top:6px;">目前登入者：{user_email}</div>',
+            unsafe_allow_html=True
+        )
+
+    with info_col2:
+        if st.button("[登出]", key="logout_btn"):
+            st.session_state["login_logged"] = False
+            st.session_state["user_email"] = ""
+            st.logout()
 
 if user_email:
     col1, col2, col3 = st.columns([0.32, 0.05, 0.63])
