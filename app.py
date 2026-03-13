@@ -849,19 +849,6 @@ if user_email:
             st.session_state["user_email"] = ""
             st.logout()
 
-if user_email:
-    col1, col2, col3 = st.columns([0.32, 0.05, 0.63])
-    with col1:
-        st.markdown(
-            f'<div class="inline-user-row"><span class="user-email">目前登入者：{user_email}</span></div>',
-            unsafe_allow_html=True
-        )
-    with col2:
-        if st.button("[登出]", key="text_logout_btn"):
-            st.session_state["login_logged"] = False
-            st.session_state["user_email"] = ""
-            st.logout()
-
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
