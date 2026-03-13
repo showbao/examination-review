@@ -801,18 +801,12 @@ user_email = st.session_state.get("user_email", "")
 
 st.markdown("""
 <style>
-.logout-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: -6px;
-    margin-bottom: 10px;
-}
-.logout-chip button {
-    padding: 3px 9px !important;
-    font-size: 0.8rem !important;
-    line-height: 1.2 !important;
-    min-height: 0 !important;
+/* 只縮小 logout_btn 所在欄位內的按鈕 */
+div[data-testid="column"] div.stButton > button[kind="secondary"] {
+    padding: 2px 8px !important;
+    font-size: 0.78rem !important;
+    line-height: 1.1 !important;
+    min-height: 1.8rem !important;
     height: auto !important;
     width: auto !important;
     border-radius: 7px !important;
@@ -823,20 +817,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if user_email:
-    info_col1, info_col2 = st.columns([8, 1])
+    info_col1, info_col2, info_col3 = st.columns([0.34, 0.08, 0.58])
     with info_col1:
-        st.markdown(f"""
-<div class="logout-row">
-    <span style="font-size:0.95rem;color:#666;">目前登入者：{user_email}</span>
-</div>
-""", unsafe_allow_html=True)
+        st.caption(f"目前登入者：{user_email}")
     with info_col2:
-        st.markdown('<div class="logout-chip">', unsafe_allow_html=True)
         if st.button("登出", key="logout_btn"):
             st.session_state["login_logged"] = False
             st.session_state["user_email"] = ""
             st.logout()
-        st.markdown('</div>', unsafe_allow_html=True)
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
