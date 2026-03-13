@@ -699,26 +699,30 @@ def render_footer():
     st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
     st.markdown('<div class="footer">Designed for 臺中市北屯區建功國小 | Powered by Gemini 3.0</div>', unsafe_allow_html=True)
 
-def load_whitelist():
+@st.cache_resource
+def get_gspread_client():
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
+    return gspread.authorize(creds)
 
-    client = gspread.authorize(creds)
+@st.cache_data(ttl=300)
+def load_whitelist():
+    client = get_gspread_client()
     sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("whitelist")
 
     emails = sheet.col_values(1)
-    return [e.strip().lower() for e in emails if e]
+    normalized = [
+        e.strip().lower()
+        for e in emails
+        if e and e.strip() and e.strip().lower() != "email"
+    ]
+    return normalized
 
 def log_usage(email, action):
     try:
-        creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=["https://www.googleapis.com/auth/spreadsheets"],
-        )
-
-        client = gspread.authorize(creds)
+        client = get_gspread_client()
         sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("logs")
 
         now_str = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
