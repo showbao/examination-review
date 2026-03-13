@@ -1,4 +1,6 @@
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 import google.generativeai as genai
 import os
 import time
@@ -696,8 +698,15 @@ def render_footer():
 def check_login():
     # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
     if st.user.is_logged_in:
-        user_email = st.user.get("email", "")
+        user_email = st.user.get("email", "").lower()
         st.session_state["user_email"] = user_email
+
+        whitelist = load_whitelist()
+
+        if user_email not in whitelist:
+            st.error("❌ 此帳號未被授權使用本系統")
+            st.stop()
+
         return True
 
     # 未登入時：顯示聲明與 Google 登入按鈕
@@ -725,6 +734,18 @@ def check_login():
 
 if not check_login():
     st.stop()
+    
+def load_whitelist():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    )
+
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("whitelist")
+
+    emails = sheet.col_values(1)
+    return [e.strip().lower() for e in emails if e]
 
 # ==========================================
 # 4. 主流程與 Prompt
