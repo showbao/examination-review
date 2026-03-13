@@ -794,39 +794,37 @@ st.title("北屯區建功國小AI審題系統")
 
 user_email = st.session_state.get("user_email", "")
 if user_email:
-    st.markdown(f"""
-    <div style="
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-top: -8px;
-        margin-bottom: 12px;
-    ">
-        <span style="
-            font-size: 0.95rem;
-            color: #666666;
-        ">
-            目前登入者：{user_email}
-        </span>
+st.markdown(
+f"""
+<div style="
+display:flex;
+align-items:center;
+gap:8px;
+margin-top:-6px;
+margin-bottom:10px;
+">
 
-        <a href="?logout=1"
-           target="_self"
-           style="
-                display: inline-block;
-                padding: 4px 10px;
-                font-size: 0.82rem;
-                line-height: 1.2;
-                color: #5B7C99;
-                background-color: #FFFFFF;
-                border: 1px solid #E0E0E0;
-                border-radius: 8px;
-                text-decoration: none;
-                box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.05);
-           ">
-            登出
-        </a>
-    </div>
-    """, unsafe_allow_html=True)
+<span style="font-size:0.95rem;color:#666;">
+目前登入者：{user_email}
+</span>
+
+<a href="?logout=1"
+style="
+padding:3px 9px;
+font-size:0.8rem;
+border:1px solid #ddd;
+border-radius:7px;
+text-decoration:none;
+color:#5B7C99;
+background:#fff;
+">
+登出
+</a>
+
+</div>
+""",
+unsafe_allow_html=True
+)
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
