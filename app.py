@@ -734,22 +734,22 @@ def check_login():
         st.session_state["user_email"] = user_email
 
         whitelist = load_whitelist()
-        whitelist = [e for e in whitelist if e != "email"]
 
         if user_email not in whitelist:
             st.error("❌ 此帳號未被授權使用本系統")
             st.info("請先登出，再使用白名單帳號重新登入。")
             if st.button("登出並重新登入", key="unauthorized_logout"):
+                st.session_state["login_logged"] = False
+                st.session_state["user_email"] = ""
                 st.logout()
             st.stop()
 
-        # 同一次登入只記一次 login
         if not st.session_state.get("login_logged", False):
             log_usage(user_email, "login")
             st.session_state["login_logged"] = True
 
         return True
-
+        
     # 未登入時：顯示聲明與 Google 登入按鈕
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -773,14 +773,8 @@ def check_login():
     render_footer()
     return False
 
-if "logout" in st.query_params:
-    st.session_state["login_logged"] = False
-    st.session_state["user_email"] = ""
-    st.query_params.clear()
-    st.logout()
-
-if not check_login():
-    st.stop()
+    if not check_login():
+        st.stop()
 
 # ==========================================
 # 4. 主流程與 Prompt
@@ -793,24 +787,44 @@ if "metadata" not in st.session_state: st.session_state.metadata = {}
 st.title("北屯區建功國小AI審題系統")
 user_email = st.session_state.get("user_email", "")
 
+st.markdown("""
+<style>
+.logout-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: -6px;
+    margin-bottom: 10px;
+}
+.logout-chip button {
+    padding: 3px 9px !important;
+    font-size: 0.8rem !important;
+    line-height: 1.2 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    width: auto !important;
+    border-radius: 7px !important;
+    box-shadow: none !important;
+    margin-top: 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 if user_email:
-    st.markdown(
-f"""
-<div style="display:flex;align-items:center;gap:8px;margin-top:-6px;margin-bottom:10px;">
-
-<span style="font-size:0.95rem;color:#666;">
-目前登入者：{user_email}
-</span>
-
-<a href="?logout=1"
-style="padding:3px 9px;font-size:0.8rem;border:1px solid #ddd;border-radius:7px;text-decoration:none;color:#5B7C99;background:#fff;">
-登出
-</a>
-
+    info_col1, info_col2 = st.columns([8, 1])
+    with info_col1:
+        st.markdown(f"""
+<div class="logout-row">
+    <span style="font-size:0.95rem;color:#666;">目前登入者：{user_email}</span>
 </div>
-""",
-unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
+    with info_col2:
+        st.markdown('<div class="logout-chip">', unsafe_allow_html=True)
+        if st.button("登出", key="logout_btn"):
+            st.session_state["login_logged"] = False
+            st.session_state["user_email"] = ""
+            st.logout()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
