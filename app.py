@@ -790,6 +790,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "used_model_name" not in st.session_state: st.session_state.used_model_name = ""
 if "metadata" not in st.session_state: st.session_state.metadata = {}
 
+st.title("北屯區建功國小AI審題系統")
 user_email = st.session_state.get("user_email", "")
 
 if user_email:
