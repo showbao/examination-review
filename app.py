@@ -773,6 +773,12 @@ def check_login():
     render_footer()
     return False
 
+if "logout" in st.query_params:
+    st.session_state["login_logged"] = False
+    st.session_state["user_email"] = ""
+    st.query_params.clear()
+    st.logout()
+
 if not check_login():
     st.stop()
 
@@ -788,32 +794,39 @@ st.title("北屯區建功國小AI審題系統")
 
 user_email = st.session_state.get("user_email", "")
 if user_email:
-    st.markdown("""
-    <style>
-    div[data-testid="column"]:has(button[kind="secondary"]) div.stButton > button {
-        padding: 0.2rem 0.7rem !important;
-        font-size: 0.85rem !important;
-        line-height: 1.2 !important;
-        border-radius: 8px !important;
-        min-height: 2rem !important;
-        width: auto !important;
-        margin-top: 0 !important;
-    }
-    div[data-testid="column"]:has(button[kind="secondary"]) {
-        display: flex !important;
-        align-items: center !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: -8px;
+        margin-bottom: 12px;
+    ">
+        <span style="
+            font-size: 0.95rem;
+            color: #666666;
+        ">
+            目前登入者：{user_email}
+        </span>
 
-    info_col1, info_col2 = st.columns([12, 2])
-    with info_col1:
-        st.caption(f"目前登入者：{user_email}")
-    with info_col2:
-        if st.button("登出", key="logout_btn"):
-            st.session_state["login_logged"] = False
-            st.session_state["user_email"] = ""
-            st.logout()
+        <a href="?logout=1"
+           target="_self"
+           style="
+                display: inline-block;
+                padding: 4px 10px;
+                font-size: 0.82rem;
+                line-height: 1.2;
+                color: #5B7C99;
+                background-color: #FFFFFF;
+                border: 1px solid #E0E0E0;
+                border-radius: 8px;
+                text-decoration: none;
+                box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.05);
+           ">
+            登出
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
