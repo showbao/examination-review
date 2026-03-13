@@ -788,7 +788,6 @@ def check_login():
 if "logout" in st.query_params:
     st.session_state["login_logged"] = False
     st.session_state["user_email"] = ""
-    st.query_params.clear()
     st.logout()
 
 if not check_login():
