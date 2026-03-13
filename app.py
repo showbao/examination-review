@@ -707,17 +707,35 @@ def load_whitelist():
     emails = sheet.col_values(1)
     return [e.strip().lower() for e in emails if e]
 
+def log_usage(email, action):
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"],
+    )
+
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("logs")
+
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    sheet.append_row([email, action, now_str])
+
 def check_login():
     # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
     if st.user.is_logged_in:
-        user_email = st.user.get("email", "").lower()
+        user_email = st.user.get("email", "").strip().lower()
         st.session_state["user_email"] = user_email
 
         whitelist = load_whitelist()
+        whitelist = [e for e in whitelist if e != "email"]
 
         if user_email not in whitelist:
             st.error("❌ 此帳號未被授權使用本系統")
             st.stop()
+
+        # 同一次登入只記一次 login
+        if not st.session_state.get("login_logged", False):
+            log_usage(user_email, "login")
+            st.session_state["login_logged"] = True
 
         return True
 
@@ -842,6 +860,10 @@ if start_btn:
     if not exam_file:
         st.warning("❌ 請務必上傳一份「試卷」！")
     else:
+        user_email = st.session_state.get("user_email", "")
+        if user_email:
+            log_usage(user_email, "ai_review")
+
         status_box = st.empty()
         progress_bar = st.progress(0)
         
