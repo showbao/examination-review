@@ -14,7 +14,6 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from datetime import datetime
 from zoneinfo import ZoneInfo
-SESSION_TIMEOUT = 60  # 3小時（秒）
 
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
@@ -100,7 +99,7 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 
 ENABLE_ADVANCED_FEATURES = False
 ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"   # ← 請改成你們學校真正的網域
-SESSION_TIMEOUT = 6 * 60 * 60  # 6小時；若要一天可改成 12 * 60 * 60
+SESSION_TIMEOUT = 60  # 6小時；若要一天可改成 12 * 60 * 60
 
 # ==========================================
 # 2. 輔助函式：模型管理與 Word 生成
