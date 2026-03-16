@@ -120,7 +120,7 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 
 ENABLE_ADVANCED_FEATURES = False
 ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"   # ← 請改成你們學校真正的網域
-SESSION_TIMEOUT =  60  # 6小時；若要一天可改成 12 * 60 * 60
+SESSION_TIMEOUT = 6 * 60 * 6
 
 # ==========================================
 # 2. 輔助函式：模型管理與 Word 生成
