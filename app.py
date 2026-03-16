@@ -122,29 +122,14 @@ def get_best_pro_model(api_key):
 
 def upload_to_gemini(file_obj):
     import tempfile
-
-    filename = file_obj.name.lower()
-
-    if filename.endswith(".pdf"):
-        suffix = ".pdf"
-        mime_type = "application/pdf"
-    elif filename.endswith(".png"):
-        suffix = ".png"
-        mime_type = "image/png"
-    else:
-        suffix = ".jpg"
-        mime_type = "image/jpeg"
-
+    suffix = ".pdf" if file_obj.name.endswith(".pdf") else ".jpg"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file_obj.getvalue())
         tmp_path = tmp.name
-
-    file_ref = genai.upload_file(tmp_path, mime_type=mime_type)
-
+    file_ref = genai.upload_file(tmp_path, mime_type="application/pdf" if suffix == ".pdf" else "image/jpeg")
     while file_ref.state.name == "PROCESSING":
         time.sleep(1)
         file_ref = genai.get_file(file_ref.name)
-
     os.remove(tmp_path)
     return file_ref
 
@@ -788,13 +773,7 @@ else:
 
 # --- 介面佈局：上傳區 (單欄流式排版) ---
 st.subheader(" 上傳試卷 ")
-exam_files = st.file_uploader(
-    "📤 上傳試卷（可多份 PDF，若有英聽文字稿也請一併上傳）",
-    type=["pdf"],
-    accept_multiple_files=True,
-    key="exam_uploader",
-    label_visibility="collapsed"
-)
+exam_file = st.file_uploader("📤 上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
 
 # --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
@@ -859,8 +838,8 @@ LITERACY_STANDARDS = """
 st.markdown("---")
 
 if start_btn:
-    if not exam_files:
-        st.warning("❌ 請務必上傳至少一份 PDF 試卷！")
+    if not exam_file:
+        st.warning("❌ 請務必上傳一份「試卷」！")
     else:
         user_email = st.session_state.get("user_email", "")
         if user_email:
@@ -873,14 +852,13 @@ if start_btn:
             # ----------------------------------------------------
             # Phase 1: 智慧分流路由 (Smart Routing)
             # ----------------------------------------------------
-            filenames = [f.name for f in exam_files]
-            status_box.info(f"🔍 正在解析試卷資訊... ({len(filenames)} 份 PDF)")
+            filename = exam_file.name
+            status_box.info(f"🔍 正在解析試卷資訊... (檔名：{filename})")
             progress_bar.progress(10)
 
-            # 1. 判斷科目屬性（只要任一檔名含理科關鍵字，就視為理科）
+            # 1. 判斷科目屬性
             is_science = False
-            joined_filenames = " ".join(filenames)
-            if any(k in joined_filenames for k in ["數學", "自然", "理化", "物理", "化學", "生物"]):
+            if any(k in filename for k in ["數學", "自然", "理化", "物理", "化學", "生物"]):
                 is_science = True
             
             # 2. 決定模型 (核心路由邏輯)
@@ -910,10 +888,8 @@ if start_btn:
 
             # 3. 資訊提取 (Metadata)
             flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
-
-            # 先以上傳的第一份 PDF 當作主要試卷，擷取基本資訊
-            primary_exam_ref = upload_to_gemini(exam_files[0])
-
+            exam_ref = upload_to_gemini(exam_file)
+            
             meta_prompt = """
             請閱讀這份試卷，並擷取以下資訊，輸出為純 JSON 格式：
             {
@@ -925,7 +901,7 @@ if start_btn:
             }
             如果找不到某些資訊，請填入空白。
             """
-            meta_response = flash_model.generate_content([meta_prompt, primary_exam_ref])
+            meta_response = flash_model.generate_content([meta_prompt, exam_ref])
             try:
                 json_str = meta_response.text.strip()
                 if "```json" in json_str:
@@ -947,23 +923,11 @@ if start_btn:
             }
             
             main_model = genai.GenerativeModel(target_model_name)
-
+            
             prompt_parts = []
             if context_files:
-                for cf in context_files:
-                    prompt_parts.append(upload_to_gemini(cf))
-
-            base_prompt = f"""
-            ...
-            """
-
-            if context_files:
-                prompt_parts.append("【參考教材】：")
-
-            prompt_parts.append(base_prompt)
-            prompt_parts.append("【待審查試卷（含主試卷與補充 PDF，如英聽文字稿）】：")
-            for ef in exam_files:
-                prompt_parts.append(upload_to_gemini(ef))
+                for cf in context_files: prompt_parts.append(upload_to_gemini(cf))
+            
             base_prompt = f"""
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
 目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
