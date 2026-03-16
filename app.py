@@ -15,7 +15,6 @@ from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-SESSION_TIMEOUT = 6 * 60 * 60  # 6小時 (秒)
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
 # ==========================================
@@ -707,9 +706,6 @@ def check_login():
     if st.user.is_logged_in:
         user_email = st.user.get("email", "").strip().lower()
         st.session_state["user_email"] = user_email
-       
-        if "last_activity" not in st.session_state:
-            st.session_state.last_activity = time.time()
 
         if not user_email.endswith(ALLOWED_EMAIL_DOMAIN):
             st.error("❌ 此帳號未被授權使用本系統")
@@ -756,18 +752,6 @@ if "logout" in st.query_params:
 
 if not check_login():
     st.stop()
-    st.session_state.last_activity = time.time()
-
-def check_session_timeout():
-    if "last_activity" not in st.session_state:
-        st.session_state.last_activity = time.time()
-        return
-
-    now = time.time()
-    if now - st.session_state.last_activity > SESSION_TIMEOUT:
-        st.session_state.clear()
-        st.warning("⚠️ 已因長時間未操作，自動登出，請重新登入。")
-        st.rerun()
 
 # ==========================================
 # 4. 主流程與 Prompt
@@ -805,7 +789,6 @@ exam_file = st.file_uploader("📤 上傳試卷", type=["pdf"], key="exam_upload
 # --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
 start_btn = st.button(" 開始\n AI 審查", type="primary", use_container_width=True)
-st.session_state.last_activity = time.time()
 
 # --- 進階功能區 (預設隱藏) ---
 context_files = None
