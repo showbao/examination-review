@@ -14,7 +14,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from datetime import datetime
 from zoneinfo import ZoneInfo
-SESSION_TIMEOUT = 3 * 60 * 60  # 3小時（秒）
+SESSION_TIMEOUT = 60  # 3小時（秒）
 
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
@@ -100,6 +100,7 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 
 ENABLE_ADVANCED_FEATURES = False
 ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"   # ← 請改成你們學校真正的網域
+SESSION_TIMEOUT = 6 * 60 * 60  # 6小時；若要一天可改成 12 * 60 * 60
 
 # ==========================================
 # 2. 輔助函式：模型管理與 Word 生成
@@ -710,7 +711,9 @@ def check_session_timeout():
     now = time.time()
 
     if now - st.session_state["last_activity"] > SESSION_TIMEOUT:
-        st.session_state.clear()
+        st.session_state["login_logged"] = False
+        st.session_state["user_email"] = ""
+        st.session_state["last_activity"] = time.time()
         st.warning("⚠️ 因長時間未操作，系統已自動登出。")
         st.logout()
         
@@ -720,9 +723,6 @@ def check_login():
         user_email = st.user.get("email", "").strip().lower()
         st.session_state["user_email"] = user_email
 
-        if "last_activity" not in st.session_state:
-            st.session_state["last_activity"] = time.time()
-
         if not user_email.endswith(ALLOWED_EMAIL_DOMAIN):
             st.error("❌ 此帳號未被授權使用本系統")
             st.info(f"本系統僅限 {ALLOWED_EMAIL_DOMAIN} 網域帳號使用。")
@@ -731,6 +731,9 @@ def check_login():
                 st.session_state["user_email"] = ""
                 st.logout()
             st.stop()
+
+        if "last_activity" not in st.session_state:
+            st.session_state["last_activity"] = time.time()
 
         if not st.session_state.get("login_logged", False):
             log_usage(user_email, "login")
@@ -867,10 +870,10 @@ LITERACY_STANDARDS = """
 st.markdown("---")
 
 if start_btn:
-
     st.session_state["last_activity"] = time.time()
+
     if not exam_file:
-        st.warning("❌ 請務必上傳一份「試卷」！")
+        st.warning("❌ 請務必上傳至少一份 PDF 試卷！")
     else:
         user_email = st.session_state.get("user_email", "")
         if user_email:
