@@ -275,24 +275,6 @@ def add_plain_text_to_cell(container, text):
     set_font_style(run, size=12)
     return p
 
-SUB_HEADER_ICON_MAP = {
-    "最優先修正": "🔴",
-    "最優先修正 (Critical)": "🔴",
-    "難度與鑑別度點評": "⚖️",
-    "值得讚許之處": "👍",
-    "後續優化建議": "💡",
-    "優良試題": "🟢",
-    "待確認試題": "🟡",
-    "真素養": "🟢",
-    "假素養/待確認": "🟡",
-    "通過 (無敏感議題)": "🟢",
-    "潛在爭議 (具體指出問題)": "⚠️",
-    "整體作答負擔觀察": "📌",
-    "閱讀負擔": "📖",
-    "圖表判讀負擔": "📊",
-    "運算負擔": "🧮"
-}
-
 SUB_HEADER_ALIASES = {
     "最優先修正": "最優先修正",
     "最優先修正 (Critical)": "最優先修正",
@@ -347,10 +329,6 @@ TEXT_MODE_SUBHEADERS = {
     "圖表判讀負擔",
     "運算負擔"
 }    
-def decorate_sub_header(text):
-    canonical = canonical_sub_header(text)
-    icon = SUB_HEADER_ICON_MAP.get(canonical, "")
-    return f"{icon} {canonical}".strip()
 
 def set_cell_shading(cell, fill="D9D9D9"):
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -449,12 +427,6 @@ def create_word_report(analysis_text, metadata):
     doc.add_page_break()
 
     # --- 內容解析（主標題 / 子標題 / 外框區塊版）---
-    analysis_text = normalize_analysis_tables(analysis_text)
-    lines = analysis_text.split('\n')
-    table_mode = False
-    table_data = []
-
-    # --- 內容解析（取消分析章節外框版）---
     analysis_text = normalize_analysis_tables(analysis_text)
     lines = analysis_text.split('\n')
     table_mode = False
@@ -749,9 +721,9 @@ def check_login():
         st.markdown("""
         **使用前請詳閱以下說明：**
         1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。**
-        2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。**
-        3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。**
-        4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用。**
+        2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。
+        3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
+        4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用。
         """)
 
     btn_col1, btn_col2, btn_col3 = st.columns([1, 2, 1])
@@ -956,8 +928,6 @@ if start_btn:
             if context_files:
                 for cf in context_files: prompt_parts.append(upload_to_gemini(cf))
             
-            units_str = ", ".join(unit_list) if unit_list else "未提供"
-
             base_prompt = f"""
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
 目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
