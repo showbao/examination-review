@@ -110,7 +110,8 @@ def get_best_flash_model(api_key):
         models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and "flash" in m.name.lower() and "gemini" in m.name.lower()]
         models.sort(key=lambda x: x.name, reverse=True)
         return models[0].name if models else "models/gemini-1.5-flash"
-    except: return "models/gemini-1.5-flash"
+    except Exception:
+        return "models/gemini-1.5-flash"
 
 def get_best_pro_model(api_key):
     genai.configure(api_key=api_key)
@@ -118,18 +119,26 @@ def get_best_pro_model(api_key):
         models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and "pro" in m.name.lower() and "gemini" in m.name.lower()]
         models.sort(key=lambda x: x.name, reverse=True)
         return models[0].name if models else "models/gemini-1.5-pro"
-    except: return "models/gemini-1.5-pro"
+    except Exception:
+        return "models/gemini-1.5-pro"
 
 def upload_to_gemini(file_obj):
     import tempfile
-    suffix = ".pdf" if file_obj.name.endswith(".pdf") else ".jpg"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+
+    filename = file_obj.name.lower()
+    if not filename.endswith(".pdf"):
+        raise ValueError("目前僅支援 PDF 檔案上傳。")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(file_obj.getvalue())
         tmp_path = tmp.name
-    file_ref = genai.upload_file(tmp_path, mime_type="application/pdf" if suffix == ".pdf" else "image/jpeg")
+
+    file_ref = genai.upload_file(tmp_path, mime_type="application/pdf")
+
     while file_ref.state.name == "PROCESSING":
         time.sleep(1)
         file_ref = genai.get_file(file_ref.name)
+
     os.remove(tmp_path)
     return file_ref
 
@@ -689,8 +698,9 @@ def log_usage(email, action):
         sheet.append_row([email, action, now_str])
 
     except Exception as e:
-        st.error(f"❌ log 寫入失敗：{e}")
-
+        print(f"log write error: {e}")
+        st.warning("⚠️ 使用紀錄暫時無法寫入，但不影響本次審查。")
+        
 def check_login():
     # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
     if st.user.is_logged_in:
@@ -773,7 +783,8 @@ else:
 
 # --- 介面佈局：上傳區 (單欄流式排版) ---
 st.subheader(" 上傳試卷 ")
-exam_file = st.file_uploader("📤 上傳試卷", type=["pdf", "jpg", "png"], key="exam_uploader", label_visibility="collapsed")
+st.caption("請上傳 1 份 PDF 試卷。若為英語聽力題，請將英聽文字稿整理在同一份 PDF 試卷後面，並清楚標示對應題號（例如：第一大題第1～5題）。本系統目前不支援音檔比對，請勿上傳 mp3、wav 等音訊檔。")
+exam_file = st.file_uploader("📤 上傳試卷", type=["pdf"], key="exam_uploader", label_visibility="collapsed")
 
 # --- 按鈕區 (位於上傳區正下方) ---
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
@@ -907,7 +918,7 @@ if start_btn:
                 if "```json" in json_str:
                     json_str = json_str.split("```json")[1].split("```")[0]
                 metadata = json.loads(json_str)
-            except:
+            except Exception:
                 metadata = {"year":"", "semester":"", "grade":"", "subject":"", "exam_type":""}
             st.session_state.metadata = metadata
 
