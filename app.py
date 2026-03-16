@@ -12,7 +12,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 # ==========================================
@@ -28,6 +28,27 @@ morandi_css = """
     }
     
     .stApp { background-color: #F5F7F7; }
+    /* 一般正文與 Markdown 文字固定深色，避免深色主題下變白字白底 */
+    .stApp,
+    .stApp p,
+    .stApp li,
+    .stApp span,
+    .stApp label,
+    .stApp div,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li,
+    [data-testid="stText"],
+    [data-testid="stInfo"] *,
+    [data-testid="stWarning"] *,
+    [data-testid="stAlert"] * {
+        color: #4A4A4A !important;
+    }
+
+    table, th, td {
+        color: #4A4A4A !important;
+    }
+
     
     /* 標題層級與大小調整 */
     h1 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.5rem !important; }
@@ -703,19 +724,24 @@ def log_usage(email, action):
         st.warning("⚠️ 使用紀錄暫時無法寫入，但不影響本次審查。")
 
 def check_session_timeout():
+    if not st.user.is_logged_in:
+        return
+
     if "last_activity" not in st.session_state:
         st.session_state["last_activity"] = time.time()
         return
 
     now = time.time()
-
     if now - st.session_state["last_activity"] > SESSION_TIMEOUT:
         st.session_state["login_logged"] = False
         st.session_state["user_email"] = ""
-        st.session_state["last_activity"] = time.time()
-        st.warning("⚠️ 因長時間未操作，系統已自動登出。")
+        st.session_state.pop("last_activity", None)
         st.logout()
-        
+
+@st.fragment(run_every=timedelta(seconds=30))
+def session_watchdog():
+    check_session_timeout()
+
 def check_login():
     # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
     if st.user.is_logged_in:
@@ -771,7 +797,7 @@ if "logout" in st.query_params:
 if not check_login():
     st.stop()
 
-check_session_timeout()
+session_watchdog()
 
 # ==========================================
 # 4. 主流程與 Prompt
