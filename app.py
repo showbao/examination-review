@@ -121,6 +121,7 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 ENABLE_ADVANCED_FEATURES = False
 ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"   # ← 請改成你們學校真正的網域
 SESSION_TIMEOUT = 2 * 60 * 6
+WARNING_BEFORE_TIMEOUT = 1 * 60  # 剩 5 分鐘提醒
 
 # ==========================================
 # 2. 輔助函式：模型管理與 Word 生成
@@ -732,11 +733,25 @@ def check_session_timeout():
         return
 
     now = time.time()
-    if now - st.session_state["last_activity"] > SESSION_TIMEOUT:
+    elapsed = now - st.session_state["last_activity"]
+    remaining = SESSION_TIMEOUT - elapsed
+
+    # 先處理已超時
+    if remaining <= 0:
         st.session_state["login_logged"] = False
         st.session_state["user_email"] = ""
         st.session_state.pop("last_activity", None)
+        st.session_state.pop("timeout_warning_shown", None)
         st.logout()
+
+    # 剩 5 分鐘內顯示提醒，只顯示一次
+    if remaining <= WARNING_BEFORE_TIMEOUT:
+        if not st.session_state.get("timeout_warning_shown", False):
+            minutes_left = max(1, int(remaining // 60))
+            st.warning(f"⚠️ 系統將在 {minutes_left} 分鐘後因閒置自動登出。")
+            st.session_state["timeout_warning_shown"] = True
+    else:
+        st.session_state["timeout_warning_shown"] = False
 
 @st.fragment(run_every=timedelta(seconds=30))
 def session_watchdog():
