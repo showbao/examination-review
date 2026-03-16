@@ -14,6 +14,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from datetime import datetime
 from zoneinfo import ZoneInfo
+SESSION_TIMEOUT = 3 * 60 * 60  # 3小時（秒）
 
 # ==========================================
 # 0. 視覺風格設定 (莫蘭迪色系 & CSS)
@@ -700,12 +701,27 @@ def log_usage(email, action):
     except Exception as e:
         print(f"log write error: {e}")
         st.warning("⚠️ 使用紀錄暫時無法寫入，但不影響本次審查。")
+
+def check_session_timeout():
+    if "last_activity" not in st.session_state:
+        st.session_state["last_activity"] = time.time()
+        return
+
+    now = time.time()
+
+    if now - st.session_state["last_activity"] > SESSION_TIMEOUT:
+        st.session_state.clear()
+        st.warning("⚠️ 因長時間未操作，系統已自動登出。")
+        st.logout()
         
 def check_login():
     # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
     if st.user.is_logged_in:
         user_email = st.user.get("email", "").strip().lower()
         st.session_state["user_email"] = user_email
+
+        if "last_activity" not in st.session_state:
+            st.session_state["last_activity"] = time.time()
 
         if not user_email.endswith(ALLOWED_EMAIL_DOMAIN):
             st.error("❌ 此帳號未被授權使用本系統")
@@ -752,6 +768,8 @@ if "logout" in st.query_params:
 
 if not check_login():
     st.stop()
+
+check_session_timeout()
 
 # ==========================================
 # 4. 主流程與 Prompt
@@ -849,6 +867,8 @@ LITERACY_STANDARDS = """
 st.markdown("---")
 
 if start_btn:
+
+    st.session_state["last_activity"] = time.time()
     if not exam_file:
         st.warning("❌ 請務必上傳一份「試卷」！")
     else:
