@@ -964,7 +964,7 @@ if start_btn:
             prompt_parts.append("【待審查試卷（含主試卷與補充 PDF，如英聽文字稿）】：")
             for ef in exam_files:
                 prompt_parts.append(upload_to_gemini(ef))
-                
+            base_prompt = f"""
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
 目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
 
