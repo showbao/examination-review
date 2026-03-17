@@ -120,7 +120,7 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 
 ENABLE_ADVANCED_FEATURES = False
 ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"   # ← 請改成你們學校真正的網域
-SESSION_TIMEOUT = 2 * 60 * 60 
+SESSION_TIMEOUT = 1 * 60 * 60 
 WARNING_BEFORE_TIMEOUT = 5 * 60  # 剩 5 分鐘提醒
 
 # ==========================================
