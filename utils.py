@@ -155,7 +155,7 @@ def clean_ai_hallucinations(text):
     return normalize_analysis_tables(text)
 
 # ==========================================
-# Google Sheets
+# Google Sheets：使用記錄
 # ==========================================
 
 @st.cache_resource
@@ -175,3 +175,134 @@ def log_usage(email, action):
     except Exception as e:
         print(f"log write error: {e}")
         st.warning("⚠️ 使用紀錄暫時無法寫入，但不影響本次審查。")
+
+# ==========================================
+# Google Sheets：課程教學重點
+# ==========================================
+
+# 評量類別正規化對照表
+# AI 萃取的文字 → Sheet 查詢值
+EXAM_TYPE_MAP = {
+    "第一次月考":   "第一次月考",
+    "第一次定期評量": "第一次月考",
+    "月考一":      "第一次月考",
+    "期中評量":    "第一次月考",
+    "期中考":      "第一次月考",
+    "第二次月考":   "第二次月考",
+    "第二次定期評量": "第二次月考",
+    "月考二":      "第二次月考",
+    "期末評量":    "第二次月考",
+    "期末考":      "第二次月考",
+}
+
+def normalize_exam_type(raw_exam_type: str) -> str:
+    """將 AI 萃取的評量類別正規化為 Sheet 查詢值，找不到回傳空字串"""
+    raw = raw_exam_type.strip()
+    if raw in EXAM_TYPE_MAP:
+        return EXAM_TYPE_MAP[raw]
+    # 模糊比對：只要包含關鍵字
+    for key, value in EXAM_TYPE_MAP.items():
+        if key in raw:
+            return value
+    return ""
+
+def get_curriculum_standards(grade: str, subject: str, semester: str, exam_type: str) -> dict:
+    """
+    從 Google Sheets 的 curriculum 工作表查詢教學重點。
+
+    回傳 dict：
+        {
+            "standards": str,       # 教學重點文字（空字串表示查無資料）
+            "match_type": str,      # "exact" | "semester" | "none"
+            "label": str            # 供 UI 顯示用的說明文字
+        }
+
+    Sheet 欄位順序（A~E）：
+        A: 年級　B: 科目　C: 學期　D: 評量類別　E: 教學重點
+    """
+    result = {"standards": "", "match_type": "none", "label": ""}
+
+    if not grade or not subject or not semester:
+        return result
+
+    normalized_exam = normalize_exam_type(exam_type)
+
+    try:
+        client = get_gspread_client()
+        ws = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("curriculum")
+        rows = ws.get_all_values()
+
+        if len(rows) <= 1:
+            return result  # 只有標題列或空表
+
+        header = rows[0]  # 跳過標題列
+        data_rows = rows[1:]
+
+        # 欄位索引（依 A~E 順序）
+        COL_GRADE    = 0
+        COL_SUBJECT  = 1
+        COL_SEMESTER = 2
+        COL_EXAM     = 3
+        COL_CONTENT  = 4
+
+        exact_match = None
+        semester_matches = []
+
+        for row in data_rows:
+            if len(row) < 5:
+                continue
+
+            row_grade    = row[COL_GRADE].strip()
+            row_subject  = row[COL_SUBJECT].strip()
+            row_semester = row[COL_SEMESTER].strip()
+            row_exam     = row[COL_EXAM].strip()
+            row_content  = row[COL_CONTENT].strip()
+
+            if not row_content:
+                continue
+
+            # 年級、科目、學期三者都符合
+            if row_grade == grade and row_subject == subject and row_semester == semester:
+                # 精確比對（含評量類別）
+                if normalized_exam and row_exam == normalized_exam:
+                    exact_match = row_content
+                    break
+                # 寬鬆比對（整學期備用）
+                semester_matches.append(row_content)
+
+        if exact_match:
+            result["standards"]  = exact_match
+            result["match_type"] = "exact"
+            result["label"]      = f"{grade} {subject} {semester} {normalized_exam}"
+        elif semester_matches:
+            # 合併整學期所有列的教學重點（去重）
+            combined = "\n".join(dict.fromkeys(semester_matches))
+            result["standards"]  = combined
+            result["match_type"] = "semester"
+            result["label"]      = f"{grade} {subject} {semester}（完整學期）"
+        # else: match_type 維持 "none"
+
+    except Exception as e:
+        print(f"curriculum read error: {e}")
+        # 靜默失敗，不影響審查流程
+
+    return result
+
+def build_curriculum_prompt_text(curriculum: dict) -> str:
+    """將教學重點 dict 轉為注入 Prompt 的文字段落，查無資料時回傳空字串"""
+    if not curriculum or not curriculum.get("standards"):
+        return ""
+
+    lines = [
+        f"【本次評量對應教學重點 — {curriculum['label']}】：",
+        curriculum["standards"],
+        "",
+        "⚠️ 以下審查請全程參照上方教學重點清單：",
+        "1. 若試題考查的知識點不在清單內，於「待確認試題及修改建議」標記「⚠️ 疑似超出命題範圍」。",
+        "2. 雙向細目表的認知向度分類，請以清單中各知識點的認知層次為依據。",
+        "3. 難易度評估請以清單為基準：",
+        "   - 易：學生已學且概念單純（直接對應單一教學重點）",
+        "   - 中：需整合清單中兩個以上教學重點",
+        "   - 難：超出教學重點範圍，或需高階推理（同時標記疑似超出範圍）",
+    ]
+    return "\n".join(lines) + "\n\n"
