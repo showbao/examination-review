@@ -11,8 +11,10 @@ from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from utils import (
     clean_markdown_symbol,
     is_markdown_table_line,
+    is_markdown_separator_line,
     parse_markdown_table_rows,
     normalize_analysis_tables,
+    _normalize_table_header,
 )
 
 # ==========================================
@@ -139,13 +141,12 @@ def add_bullet_to_cell(container, text):
     return p
 
 def add_indented_sub_bullet_to_cell(container, text):
-    """第二層列點（問題點／修改方向／修改範例），以內容特徵【】判斷"""
+    """第二層列點（問題點／修改方向／修改範例）"""
     p = container.add_paragraph()
     p.paragraph_format.left_indent = Cm(2.0)
     p.paragraph_format.first_line_indent = Cm(0)
     run_bullet = p.add_run("－ ")
     set_font_style(run_bullet, size=12, color=RGBColor(111, 133, 158))
-    # 【標籤】部分加粗
     label_match = re.match(r'^(【[^】]+】：?)(.*)', text, re.DOTALL)
     if label_match:
         run_label = p.add_run(label_match.group(1))
@@ -226,6 +227,55 @@ def _render_word_table(container, data):
                         run.font.bold = True
 
 # ==========================================
+# Word 表格去重輔助
+# ==========================================
+
+def _deduplicate_word_table_lines(lines):
+    """
+    在 Word 渲染前，對即將解析的行列做表格去重。
+    與 utils.deduplicate_markdown_tables 類似，但作用於行列表。
+    """
+    table_blocks = []
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if is_markdown_table_line(stripped):
+            start = i
+            first_line = stripped
+            while i < len(lines) and (is_markdown_table_line(lines[i].strip()) or is_markdown_separator_line(lines[i].strip())):
+                i += 1
+            table_blocks.append({
+                "start": start, "end": i,
+                "header_norm": _normalize_table_header(first_line),
+            })
+        else:
+            i += 1
+
+    if not table_blocks:
+        return lines
+
+    from collections import Counter
+    header_counts = Counter(tb["header_norm"] for tb in table_blocks)
+    duplicate_headers = {h for h, c in header_counts.items() if c > 1}
+
+    if not duplicate_headers:
+        return lines
+
+    last_occurrence = {}
+    for tb in table_blocks:
+        if tb["header_norm"] in duplicate_headers:
+            last_occurrence[tb["header_norm"]] = tb["start"]
+
+    remove_lines = set()
+    for tb in table_blocks:
+        if tb["header_norm"] in duplicate_headers and tb["start"] != last_occurrence[tb["header_norm"]]:
+            for j in range(tb["start"], tb["end"]):
+                remove_lines.add(j)
+
+    return [lines[i] for i in range(len(lines)) if i not in remove_lines]
+
+
+# ==========================================
 # Word 報告主函式
 # ==========================================
 
@@ -268,13 +318,28 @@ def create_word_report(analysis_text, metadata):
             set_font_style(run, size=12, bold=(col_idx % 2 == 0))
     doc.add_paragraph()
 
-    # 教學重點比對說明
-    curriculum_display = metadata.get("curriculum_display", "未比對（未勾選）")
-    p_curr = doc.add_paragraph()
-    run_label = p_curr.add_run("教學重點比對：")
-    set_font_style(run_label, size=12, bold=True)
-    run_value = p_curr.add_run(curriculum_display)
-    set_font_style(run_value, size=12)
+    # 整合：教學重點比對 + 系統限制聲明（合併為一個區塊）
+    curriculum_display = metadata.get("curriculum_display", "未啟用教學重點比對")
+    notice_lines = [
+        f"📚 {curriculum_display}",
+        "⚠️ 系統限制：本系統僅針對試題內容進行深度分析，未檢核試卷形式（如題號連貫性、配分加總正確性），請老師務必自行審閱。",
+    ]
+    notice_table = doc.add_table(rows=1, cols=1)
+    notice_table.style = 'Table Grid'
+    notice_cell = notice_table.cell(0, 0)
+    # 清除預設空段落
+    for existing_p in notice_cell.paragraphs:
+        existing_p.text = ""
+    for idx, line in enumerate(notice_lines):
+        if idx == 0:
+            p_notice = notice_cell.paragraphs[0]
+        else:
+            p_notice = notice_cell.add_paragraph()
+        run = p_notice.add_run(line)
+        if line.startswith("⚠️"):
+            set_font_style(run, size=11, bold=True, color=RGBColor(200, 80, 80))
+        else:
+            set_font_style(run, size=11, bold=False)
     doc.add_paragraph()
 
     # 命題教師修改及說明
@@ -306,17 +371,15 @@ def create_word_report(analysis_text, metadata):
         p_empty.paragraph_format.line_spacing = 2.0
     doc.add_paragraph()
 
-    # 系統免責聲明
-    warning_text = "⚠️ 系統限制與聲明：本系統僅針對試題內容進行深度分析，未檢核「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。"
-    p_warn = doc.add_paragraph()
-    run_warn = p_warn.add_run(warning_text)
-    set_font_style(run_warn, size=11, bold=True, color=RGBColor(255, 0, 0))
-
     doc.add_page_break()
 
     # --- 內容解析主迴圈 ---
     analysis_text = normalize_analysis_tables(analysis_text)
     lines = analysis_text.split('\n')
+
+    # Word 端也做一次表格去重
+    lines = _deduplicate_word_table_lines(lines)
+
     table_mode = False
     table_data = []
     current_sub_header = None
@@ -397,8 +460,6 @@ def create_word_report(analysis_text, metadata):
                     continue
 
         if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
-            # 「待確認試題及修改建議」區塊：
-            # 以內容特徵【】判斷第二層，不依賴 AI 縮排格式
             if (current_sub_header == "待確認試題及修改建議"
                     and re.match(r'^【[^】]+】', clean_text)):
                 add_indented_sub_bullet_to_cell(doc, clean_text)
