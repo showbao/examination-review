@@ -15,12 +15,10 @@ from zoneinfo import ZoneInfo
 # 模型管理（版本號解析 + 智慧選擇）
 # ==========================================
 
-# 排除的模型關鍵字（實驗性 / 精簡版 / 思考版）
 _EXCLUDED_KEYWORDS = ["thinking", "experimental", "exp-", "lite", "8b", "nano"]
 
 
 def _parse_model_version(name: str) -> tuple:
-    """從模型名稱提取版本號元組，用於排序（越大越新）"""
     match = re.search(r'gemini[- ](\d+)\.(\d+)', name.lower())
     if match:
         return (int(match.group(1)), int(match.group(2)))
@@ -28,15 +26,10 @@ def _parse_model_version(name: str) -> tuple:
 
 
 def _prefer_latest(name: str) -> int:
-    """偏好帶有 latest 標記的模型"""
     return 1 if "latest" in name.lower() else 0
 
 
 def _get_best_model(api_key: str, model_type: str) -> str:
-    """
-    取得指定類型（flash / pro）的最佳可用模型。
-    排序依據：版本號 > latest 標記 > 名稱字典序。
-    """
     genai.configure(api_key=api_key)
     fallback = f"models/gemini-1.5-{model_type}"
     try:
@@ -50,13 +43,8 @@ def _get_best_model(api_key: str, model_type: str) -> str:
         ]
         if not candidates:
             return fallback
-
         candidates.sort(
-            key=lambda m: (
-                _parse_model_version(m.name),
-                _prefer_latest(m.name),
-                m.name,
-            ),
+            key=lambda m: (_parse_model_version(m.name), _prefer_latest(m.name), m.name),
             reverse=True,
         )
         return candidates[0].name
@@ -65,7 +53,6 @@ def _get_best_model(api_key: str, model_type: str) -> str:
 
 
 def get_best_flash_model(api_key: str) -> str:
-    """取得最佳 Flash 模型（快速、適合一般科目）"""
     cache_key = "_cached_flash_model"
     if cache_key in st.session_state:
         return st.session_state[cache_key]
@@ -75,7 +62,6 @@ def get_best_flash_model(api_key: str) -> str:
 
 
 def get_best_pro_model(api_key: str) -> str:
-    """取得最佳 Pro 模型（強推理、適合數理科目）"""
     cache_key = "_cached_pro_model"
     if cache_key in st.session_state:
         return st.session_state[cache_key]
@@ -92,17 +78,13 @@ def upload_to_gemini(file_obj):
     filename = file_obj.name.lower()
     if not filename.endswith(".pdf"):
         raise ValueError("目前僅支援 PDF 檔案上傳。")
-
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(file_obj.getvalue())
         tmp_path = tmp.name
-
     file_ref = genai.upload_file(tmp_path, mime_type="application/pdf")
-
     while file_ref.state.name == "PROCESSING":
         time.sleep(1)
         file_ref = genai.get_file(file_ref.name)
-
     os.remove(tmp_path)
     return file_ref
 
@@ -176,20 +158,13 @@ def normalize_analysis_tables(text):
 # ==========================================
 
 def _normalize_table_header(header_line: str) -> str:
-    """正規化表格表頭，用於比較是否為同一種表格"""
     cells = [c.strip().lower() for c in header_line.strip().strip("|").split("|")]
     return "|".join(cells)
 
 
 def deduplicate_markdown_tables(text: str) -> str:
-    """
-    偵測文中出現多次相同表頭的 Markdown 表格，只保留最後一個版本。
-    主要針對「雙向細目表」和「難易度」表格因 AI 重算而重複輸出的情況。
-    """
     lines = text.split("\n")
-
-    # 第一步：找出所有表格區塊
-    table_blocks = []  # [{"start": int, "end": int, "header_norm": str}, ...]
+    table_blocks = []
     i = 0
     while i < len(lines):
         if is_markdown_table_line(lines[i]):
@@ -197,39 +172,25 @@ def deduplicate_markdown_tables(text: str) -> str:
             first_line = lines[i]
             while i < len(lines) and (is_markdown_table_line(lines[i]) or is_markdown_separator_line(lines[i])):
                 i += 1
-            table_blocks.append({
-                "start": start,
-                "end": i,
-                "header_norm": _normalize_table_header(first_line),
-            })
+            table_blocks.append({"start": start, "end": i, "header_norm": _normalize_table_header(first_line)})
         else:
             i += 1
-
     if not table_blocks:
         return text
-
-    # 第二步：統計每種表頭出現次數，找出重複的
     header_counts = Counter(tb["header_norm"] for tb in table_blocks)
     duplicate_headers = {h for h, c in header_counts.items() if c > 1}
-
     if not duplicate_headers:
         return text
-
-    # 第三步：對每種重複表頭，只保留最後一次出現
     last_occurrence = {}
     for tb in table_blocks:
         if tb["header_norm"] in duplicate_headers:
             last_occurrence[tb["header_norm"]] = tb["start"]
-
     remove_lines = set()
     for tb in table_blocks:
         if tb["header_norm"] in duplicate_headers and tb["start"] != last_occurrence[tb["header_norm"]]:
             for j in range(tb["start"], tb["end"]):
                 remove_lines.add(j)
-
-    # 也移除被刪表格前後的修正說明文字（如「修正後：」「調整如下：」等）
     for line_idx in sorted(remove_lines):
-        # 往後掃描空行或修正說明
         check = line_idx + 1
         while check < len(lines) and check not in remove_lines:
             stripped = lines[check].strip()
@@ -241,7 +202,6 @@ def deduplicate_markdown_tables(text: str) -> str:
                 check += 1
             else:
                 break
-
     result_lines = [lines[i] for i in range(len(lines)) if i not in remove_lines]
     result = "\n".join(result_lines)
     result = re.sub(r'\n{3,}', '\n\n', result)
@@ -253,7 +213,6 @@ def deduplicate_markdown_tables(text: str) -> str:
 # ==========================================
 
 def clean_ai_hallucinations(text):
-    """針對 AI 輸出進行清洗，保護 Markdown 表格，並去重重複表格"""
     table_blocks = []
 
     def protect_table(match):
@@ -282,9 +241,7 @@ def clean_ai_hallucinations(text):
     for idx, block in enumerate(table_blocks):
         text = text.replace(f"@@TABLE_BLOCK_{idx}@@", normalize_analysis_tables(block))
 
-    # 表格去重（處理 AI 輸出多版本表格的情況）
     text = deduplicate_markdown_tables(text)
-
     return normalize_analysis_tables(text)
 
 
@@ -293,39 +250,24 @@ def clean_ai_hallucinations(text):
 # ==========================================
 
 def safe_parse_json(text: str) -> dict:
-    """
-    安全解析 AI 回傳的 JSON，處理常見格式問題。
-    解析失敗時回傳 None。
-    """
     text = text.strip()
-
-    # 移除 Markdown code fence
     if "```json" in text:
         text = text.split("```json")[1].split("```")[0]
     elif "```" in text:
         text = text.split("```")[1].split("```")[0]
-
     text = text.strip()
-
-    # 修復常見 AI 輸出問題
-    text = re.sub(r',\s*}', '}', text)   # trailing comma before }
-    text = re.sub(r',\s*]', ']', text)   # trailing comma before ]
-
+    text = re.sub(r',\s*}', '}', text)
+    text = re.sub(r',\s*]', ']', text)
     try:
         return json.loads(text)
     except Exception:
         pass
-
-    # 嘗試更寬鬆的解析：找到第一個 { 和最後一個 }
     try:
         start = text.index('{')
         end = text.rindex('}') + 1
         return json.loads(text[start:end])
     except Exception:
         return None
-
-
-
 
 
 # ==========================================
@@ -335,16 +277,11 @@ def safe_parse_json(text: str) -> dict:
 def call_with_retry(model, prompt_parts, generation_config,
                     max_retries: int = 2, base_wait: int = 15,
                     status_callback=None):
-    """
-    呼叫 Gemini API 並在遇到 429 (rate limit) 時自動重試。
-    status_callback: 可選的回呼函式，用於更新 UI 狀態訊息。
-    """
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             response = model.generate_content(
-                prompt_parts,
-                generation_config=generation_config,
+                prompt_parts, generation_config=generation_config,
             )
             return response
         except Exception as e:
@@ -387,16 +324,10 @@ def log_usage(email, action):
 # ==========================================
 
 EXAM_TYPE_MAP = {
-    "第一次月考":   "第一次月考",
-    "第一次定期評量": "第一次月考",
-    "月考一":      "第一次月考",
-    "期中評量":    "第一次月考",
-    "期中考":      "第一次月考",
-    "第二次月考":   "第二次月考",
-    "第二次定期評量": "第二次月考",
-    "月考二":      "第二次月考",
-    "期末評量":    "第二次月考",
-    "期末考":      "第二次月考",
+    "第一次月考": "第一次月考", "第一次定期評量": "第一次月考",
+    "月考一": "第一次月考", "期中評量": "第一次月考", "期中考": "第一次月考",
+    "第二次月考": "第二次月考", "第二次定期評量": "第二次月考",
+    "月考二": "第二次月考", "期末評量": "第二次月考", "期末考": "第二次月考",
 }
 
 
@@ -412,45 +343,34 @@ def normalize_exam_type(raw_exam_type: str) -> str:
 
 def get_curriculum_standards(grade: str, subject: str, semester: str, exam_type: str) -> dict:
     result = {"standards": "", "match_type": "none", "label": ""}
-
     if not grade or not subject or not semester:
         return result
-
     normalized_exam = normalize_exam_type(exam_type)
-
     try:
         client = get_gspread_client()
         ws = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("curriculum")
         rows = ws.get_all_values()
-
         if len(rows) <= 1:
             return result
-
         data_rows = rows[1:]
         COL_GRADE, COL_SUBJECT, COL_SEMESTER, COL_EXAM, COL_CONTENT = 0, 1, 2, 3, 4
-
         exact_match = None
         semester_matches = []
-
         for row in data_rows:
             if len(row) < 5:
                 continue
-
             row_grade   = row[COL_GRADE].strip()
             row_subject = row[COL_SUBJECT].strip()
             row_semester = row[COL_SEMESTER].strip()
             row_exam    = row[COL_EXAM].strip()
             row_content = row[COL_CONTENT].strip()
-
             if not row_content:
                 continue
-
             if row_grade == grade and row_subject == subject and row_semester == semester:
                 if normalized_exam and row_exam == normalized_exam:
                     exact_match = row_content
                     break
                 semester_matches.append(row_content)
-
         if exact_match:
             result["standards"]  = exact_match
             result["match_type"] = "exact"
@@ -460,17 +380,14 @@ def get_curriculum_standards(grade: str, subject: str, semester: str, exam_type:
             result["standards"]  = combined
             result["match_type"] = "semester"
             result["label"]      = f"{grade} {subject} {semester}（完整學期）"
-
     except Exception as e:
         print(f"curriculum read error: {e}")
-
     return result
 
 
 def build_curriculum_prompt_text(curriculum: dict) -> str:
     if not curriculum or not curriculum.get("standards"):
         return ""
-
     lines = [
         f"【本次評量對應教學重點 — {curriculum['label']}】：",
         curriculum["standards"],
