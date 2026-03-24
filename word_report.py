@@ -23,7 +23,6 @@ from utils import (
 # ==========================================
 
 def set_font_style(run, size=12, bold=False, color=None):
-    """設定字體為標楷體 + Times New Roman"""
     run.font.name = 'Times New Roman'
     run._element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
     run.font.size = Pt(size)
@@ -38,13 +37,9 @@ def set_font_style(run, size=12, bold=False, color=None):
 def is_main_section_header(line):
     clean = clean_markdown_symbol(line.strip())
     main_headers = [
-        "總結與建議",
-        "題幹與邏輯品質",
-        "素養導向深度審查",
-        "公平性與敏感度審查",
-        "雙向細目表核算",
-        "難易度與負擔分析",
-        "評量診斷與補救教學"
+        "總結與建議", "題幹與邏輯品質", "素養導向深度審查",
+        "公平性與敏感度審查", "雙向細目表核算",
+        "難易度與負擔分析", "評量診斷與補救教學"
     ]
     return clean in main_headers
 
@@ -66,11 +61,7 @@ SUB_HEADER_ALIASES = {
     "運算負擔": "運算負擔"
 }
 
-TEXT_MODE_SUBHEADERS = {
-    "閱讀負擔",
-    "圖表判讀負擔",
-    "運算負擔"
-}
+TEXT_MODE_SUBHEADERS = {"閱讀負擔", "圖表判讀負擔", "運算負擔"}
 
 def normalize_sub_header_text(text):
     text = clean_markdown_symbol(text.strip())
@@ -131,7 +122,6 @@ def add_sub_section_title(container, text):
     return p
 
 def add_bullet_to_cell(container, text):
-    """第一層列點（題號行）"""
     p = container.add_paragraph()
     p.paragraph_format.left_indent = Cm(1.0)
     p.paragraph_format.first_line_indent = Cm(0)
@@ -142,7 +132,6 @@ def add_bullet_to_cell(container, text):
     return p
 
 def add_indented_sub_bullet_to_cell(container, text):
-    """第二層列點（問題點／修改方向／修改範例）"""
     p = container.add_paragraph()
     p.paragraph_format.left_indent = Cm(2.0)
     p.paragraph_format.first_line_indent = Cm(0)
@@ -187,10 +176,8 @@ def _render_word_table(container, data):
     rows_data = parse_markdown_table_rows(data) if isinstance(data[0], str) else data
     if not rows_data:
         return
-
     rows = len(rows_data)
     cols = max(len(row) for row in rows_data)
-
     table = container.add_table(rows=rows, cols=cols)
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -228,14 +215,10 @@ def _render_word_table(container, data):
                         run.font.bold = True
 
 # ==========================================
-# Word 表格去重輔助
+# Word 表格去重
 # ==========================================
 
 def _deduplicate_word_table_lines(lines):
-    """
-    在 Word 渲染前，對即將解析的行列做表格去重。
-    與 utils.deduplicate_markdown_tables 類似，但作用於行列表。
-    """
     table_blocks = []
     i = 0
     while i < len(lines):
@@ -251,27 +234,21 @@ def _deduplicate_word_table_lines(lines):
             })
         else:
             i += 1
-
     if not table_blocks:
         return lines
-
     header_counts = Counter(tb["header_norm"] for tb in table_blocks)
     duplicate_headers = {h for h, c in header_counts.items() if c > 1}
-
     if not duplicate_headers:
         return lines
-
     last_occurrence = {}
     for tb in table_blocks:
         if tb["header_norm"] in duplicate_headers:
             last_occurrence[tb["header_norm"]] = tb["start"]
-
     remove_lines = set()
     for tb in table_blocks:
         if tb["header_norm"] in duplicate_headers and tb["start"] != last_occurrence[tb["header_norm"]]:
             for j in range(tb["start"], tb["end"]):
                 remove_lines.add(j)
-
     return [lines[i] for i in range(len(lines)) if i not in remove_lines]
 
 
@@ -318,16 +295,20 @@ def create_word_report(analysis_text, metadata):
             set_font_style(run, size=12, bold=(col_idx % 2 == 0))
     doc.add_paragraph()
 
-    # 整合：教學重點比對 + 系統限制聲明（合併為一個區塊）
-    curriculum_display = metadata.get("curriculum_display", "未啟用教學重點比對")
-    notice_lines = [
-        f"📚 {curriculum_display}",
-        "⚠️ 系統限制：本系統僅針對試題內容進行深度分析，未檢核試卷形式（如題號連貫性、配分加總正確性），請老師務必自行審閱。",
-    ]
+    # 整合通知區塊（教學重點比對失敗才顯示 + 系統限制）
+    notice_lines = []
+    curriculum_display = metadata.get("curriculum_display", "")
+    if curriculum_display:
+        notice_lines.append(curriculum_display)
+
+    notice_lines.append(
+        "⚠️ 系統限制：本系統僅針對試題內容進行深度分析，"
+        "未檢核試卷形式（如題號連貫性、配分加總正確性），請老師務必自行審閱。"
+    )
+
     notice_table = doc.add_table(rows=1, cols=1)
     notice_table.style = 'Table Grid'
     notice_cell = notice_table.cell(0, 0)
-    # 清除預設空段落
     for existing_p in notice_cell.paragraphs:
         existing_p.text = ""
     for idx, line in enumerate(notice_lines):
@@ -376,8 +357,6 @@ def create_word_report(analysis_text, metadata):
     # --- 內容解析主迴圈 ---
     analysis_text = normalize_analysis_tables(analysis_text)
     lines = analysis_text.split('\n')
-
-    # Word 端也做一次表格去重
     lines = _deduplicate_word_table_lines(lines)
 
     table_mode = False
@@ -431,7 +410,6 @@ def create_word_report(analysis_text, metadata):
 
         clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
 
-        # 副標文字模式（閱讀負擔等）
         if current_sub_header in TEXT_MODE_SUBHEADERS:
             normalized_clean = normalize_compare_text(clean_text)
             normalized_header = normalize_compare_text(current_sub_header)
@@ -447,7 +425,6 @@ def create_word_report(analysis_text, metadata):
                 add_plain_text_to_cell(doc, clean_text)
             continue
 
-        # 一般副標內容：去除重複標題字樣
         if current_sub_header is not None:
             normalized_clean = normalize_compare_text(clean_text)
             normalized_header = normalize_compare_text(current_sub_header)
