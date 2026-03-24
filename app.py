@@ -6,6 +6,8 @@ import os
 import time
 import json
 import re
+import tempfile
+from io import BytesIO
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
@@ -49,41 +51,24 @@ morandi_css = """
         color: #4A4A4A !important;
     }
 
-    
     /* 標題層級與大小調整 */
     h1 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.5rem !important; }
     h2 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.2rem !important; font-weight: bold !important; }
     h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 1.3rem !important; font-weight: normal !important; }
-    
-    /* 針對總結區塊的特別樣式 */
-    .summary-box {
-        background-color: #E3F2FD;
-        border-left: 5px solid #2196F3;
-        padding: 20px;
-        border-radius: 5px;
-        margin-bottom: 20px;
-    }
 
     /* 按鈕樣式：簡約細框 + 自適應大小 */
     div.stButton > button {
-        background-color: #FFFFFF !important;      /* 內部留白 (無填滿) */
-        color: #5B7C99 !important;                 /* 文字顏色 (莫蘭迪藍灰) */
-        border: 1px solid #E0E0E0 !important;      /* 極細灰框線 */
-        border-radius: 12px;                       /* 圓角 */
-        
-        /* 核心設計：灰白陰影 (創造浮起感) */
+        background-color: #FFFFFF !important;
+        color: #5B7C99 !important;
+        border: 1px solid #E0E0E0 !important;
+        border-radius: 12px;
         box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.05), -2px -2px 6px #FFFFFF !important;
-        
-        /* 改為自適應大小 */
         height: auto !important;
         width: auto !important;
         padding: 10px 25px !important;
         margin-top: 10px;
-        
         font-weight: bold;
         font-size: 1.1rem;
-        
-        /* 動畫過渡 */
         transition: all 0.3s ease;
         display: flex;
         align-items: center;
@@ -99,13 +84,6 @@ morandi_css = """
         box-shadow: 5px 5px 12px rgba(0, 0, 0, 0.1), -3px -3px 8px #FFFFFF !important;
     }
     
-    /* 資訊看板樣式放大 */
-    .dashboard-card {
-        background-color: #E8ECEC; padding: 20px; border-radius: 10px; border-left: 6px solid #8DA399; 
-        margin-bottom: 25px; color: #4A4A4A;
-        font-size: 1.1rem; 
-    }
-    
     .footer {
         position: fixed; left: 0; bottom: 0; width: 100%; background-color: #F5F7F7; color: #888; text-align: center; padding: 15px; font-size: 14px; border-top: 1px solid #ddd; z-index: 999;
     }
@@ -118,10 +96,25 @@ st.markdown(morandi_css, unsafe_allow_html=True)
 # 1. 系統全域設定 (Global Config)
 # ==========================================
 
-ENABLE_ADVANCED_FEATURES = False
-ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"   # ← 請改成你們學校真正的網域
-SESSION_TIMEOUT = 0.5 * 60 * 60 
+ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"
+SESSION_TIMEOUT = 0.5 * 60 * 60
 WARNING_BEFORE_TIMEOUT = 5 * 60  # 剩 5 分鐘提醒
+
+LITERACY_STANDARDS = """
+檢核標準：試著將題目中的「情境敘述」（故事、圖片、前言）移除，並依下方4個項度及各科真假素養審查標準檢核。
+1.情境真實性：判斷情境是否真實、是否貼近學生生活經驗。
+2.推理需求：分析學生是否需要進行推論、判斷或解釋，而非直接記憶。
+3.跨概念整合：檢查是否整合多個概念或學習單元。
+4.情境包裝程度：判斷情境是否只是包裝知識，而非解題必要條件。
+
+【各科真假素養審查標準】：
+1. 國語科：(真)閱讀依存、高階思維、多元表徵；(假)情境脫節、低階提問。
+2. 數學科：(真)功能性情境、真實解題(含雜訊)、數學建模；(假)文字堆砌、數據完美、套路解題。
+3. 英語科：(真)真實語料、語用溝通、資訊素養；(假)去脈絡化、死記硬背、文化真空。
+4. 社會科：(真)史料判讀、多重觀點、因果探究；(假)瑣碎記憶、單一觀點、結論背誦。
+5. 自然科：(真)探究歷程、解釋現象、證據論述；(假)名詞解釋、結果背誦、違背常理。
+6. 生活課程：(真)感官體驗、情境應變、實作導向；(假)規訓教條、知識超載、文字負擔。
+"""
 
 # ==========================================
 # 2. 輔助函式：模型管理與 Word 生成
@@ -146,8 +139,6 @@ def get_best_pro_model(api_key):
         return "models/gemini-1.5-pro"
 
 def upload_to_gemini(file_obj):
-    import tempfile
-
     filename = file_obj.name.lower()
     if not filename.endswith(".pdf"):
         raise ValueError("目前僅支援 PDF 檔案上傳。")
@@ -178,17 +169,10 @@ def set_font_style(run, size=12, bold=False, color=None):
 def clean_markdown_symbol(text):
     text = text.replace("**", "").replace("__", "")
     text = text.replace("<br>", "").replace("<br/>", "").replace("<br />", "")
-    
-    # 移除標題符號 #
-    text = re.sub(r'#+\s*', '', text) 
-    
-    # 移除開頭列表符號
+    text = re.sub(r'#+\s*', '', text)
     text = re.sub(r'^[\*\-]\s+', '', text)
-   
-    # 移除燈號
-    for icon in ["🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️", "📖", "📊", "🧮"]:
+    for icon in ["✏️", "🟢", "🔴", "🟡", "⚠️", "👍", "💡", "📊", "⚖️", "📖", "🧮"]:
         text = text.replace(icon, "")
-    
     text = text.lstrip("*- ")
     return text.strip()
 
@@ -203,48 +187,38 @@ def is_markdown_separator_line(line):
 def parse_markdown_table_rows(table_lines):
     rows = []
     max_cols = 0
-
     for raw in table_lines:
         if is_markdown_separator_line(raw):
             continue
-
         cells = [clean_markdown_symbol(c.strip()) for c in raw.strip().strip("|").split("|")]
         rows.append(cells)
         max_cols = max(max_cols, len(cells))
-
     for row in rows:
         if len(row) < max_cols:
             row.extend([""] * (max_cols - len(row)))
-
     return rows
 
 def normalize_analysis_tables(text):
     lines = text.split("\n")
     normalized = []
     i = 0
-
     while i < len(lines):
         if is_markdown_table_line(lines[i]):
             block = []
             while i < len(lines) and is_markdown_table_line(lines[i]):
                 block.append(lines[i])
                 i += 1
-
             rows = parse_markdown_table_rows(block)
             if rows:
                 header = rows[0]
                 col_count = len(header)
-
                 normalized.append("| " + " | ".join(header) + " |")
                 normalized.append("| " + " | ".join(["---"] * col_count) + " |")
-
                 for row in rows[1:]:
                     normalized.append("| " + " | ".join(row[:col_count]) + " |")
             continue
-
         normalized.append(lines[i])
         i += 1
-
     return "\n".join(normalized)
 
 def is_main_section_header(line):
@@ -262,13 +236,10 @@ def is_main_section_header(line):
 
 def is_sub_section_header(line):
     normalized = normalize_sub_header_text(line)
-
     allowed_headers = set(SUB_HEADER_ALIASES.values())
-
     for header in allowed_headers:
         if re.fullmatch(rf'{re.escape(header)}\s*[：:]?\s*', normalized):
             return True
-
     return False
 
 def add_main_section_title(doc, text):
@@ -281,10 +252,9 @@ def add_main_section_title(doc, text):
 def add_sub_section_title(container, text):
     spacer = container.add_paragraph()
     spacer.paragraph_format.space_after = Pt(6)
-
     p = container.add_paragraph()
-    p.paragraph_format.left_indent = Cm(0.75)   # 子標內縮
-    run = p.add_run(canonical_sub_header(text))  # 不再顯示圖示
+    p.paragraph_format.left_indent = Cm(0.75)
+    run = p.add_run(canonical_sub_header(text))
     set_font_style(run, size=13, bold=True, color=RGBColor(111, 133, 158))
     return p
 
@@ -292,24 +262,19 @@ def add_bullet_to_cell(container, text):
     p = container.add_paragraph()
     p.paragraph_format.left_indent = Cm(1.0)
     p.paragraph_format.first_line_indent = Cm(0)
-
     run_bullet = p.add_run("• ")
     set_font_style(run_bullet, size=12)
-
     run_text = p.add_run(text)
     set_font_style(run_text, size=12)
     return p
 
 def add_indented_sub_bullet_to_cell(container, text):
-    """用於「各題修改建議」區塊內的縮排子項目（問題點／修改方向／修改範例）"""
+    """用於「待確認試題及修改建議」區塊內的縮排子項目（問題點／修改方向／修改範例）"""
     p = container.add_paragraph()
     p.paragraph_format.left_indent = Cm(2.0)
     p.paragraph_format.first_line_indent = Cm(0)
-
     run_bullet = p.add_run("－ ")
     set_font_style(run_bullet, size=12, color=RGBColor(111, 133, 158))
-
-    # 粗體顯示標籤（如【問題點】）
     label_match = re.match(r'^(【[^】]+】：?)(.*)', text, re.DOTALL)
     if label_match:
         run_label = p.add_run(label_match.group(1))
@@ -335,8 +300,7 @@ SUB_HEADER_ALIASES = {
     "值得讚許之處": "值得讚許之處",
     "後續優化建議": "後續優化建議",
     "優良試題": "優良試題",
-    "待確認試題": "待確認試題",
-    "各題修改建議": "各題修改建議",
+    "待確認試題及修改建議": "待確認試題及修改建議",
     "真素養": "真素養",
     "假素養/待確認": "假素養/待確認",
     "通過 (無敏感議題)": "通過 (無敏感議題)",
@@ -349,15 +313,13 @@ SUB_HEADER_ALIASES = {
 
 def normalize_sub_header_text(text):
     text = clean_markdown_symbol(text.strip())
-    text = re.sub(r'^[📖📊🧮🔴⚖️👍💡🟢🟡⚠️📌]+\s*', '', text)
+    text = re.sub(r'^[✏️📖📊🧮🔴⚖️👍💡🟢🟡⚠️📌]+\s*', '', text)
     text = re.sub(r'\s*[:：]\s*$', '', text)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 def canonical_sub_header(text):
     normalized = normalize_sub_header_text(text)
-
-    # 優先處理容易變形的標題
     if normalized.startswith("最優先修正"):
         return "最優先修正"
     if normalized.startswith("難度與鑑別度點評"):
@@ -366,14 +328,13 @@ def canonical_sub_header(text):
         return "值得讚許之處"
     if normalized.startswith("後續優化建議"):
         return "後續優化建議"
-    if normalized.startswith("各題修改建議"):
-        return "各題修改建議"
-
+    if normalized.startswith("待確認試題及修改建議"):
+        return "待確認試題及修改建議"
     for alias, canonical in SUB_HEADER_ALIASES.items():
         if normalized.startswith(alias):
             return canonical
     return normalized
-    
+
 def normalize_compare_text(text):
     text = clean_markdown_symbol(text.strip())
     text = re.sub(r'\s+', '', text)
@@ -384,7 +345,7 @@ TEXT_MODE_SUBHEADERS = {
     "閱讀負擔",
     "圖表判讀負擔",
     "運算負擔"
-}    
+}
 
 def set_cell_shading(cell, fill="D9D9D9"):
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -395,19 +356,17 @@ def set_cell_shading(cell, fill="D9D9D9"):
 def prevent_row_break(row):
     tr_pr = row._tr.get_or_add_trPr()
     cant_split = OxmlElement('w:cantSplit')
-    tr_pr.append(cant_split) 
+    tr_pr.append(cant_split)
 
 def create_word_report(analysis_text, metadata):
     doc = Document()
-    
-    # 設定邊界 (1.27 cm)
+
     for section in doc.sections:
         section.top_margin = Cm(1.27)
         section.bottom_margin = Cm(1.27)
         section.left_margin = Cm(1.27)
         section.right_margin = Cm(1.27)
 
-    # 預設樣式
     style = doc.styles['Normal']
     style.font.name = 'Times New Roman'
     style.element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
@@ -436,42 +395,39 @@ def create_word_report(analysis_text, metadata):
             p = cell.paragraphs[0]
             run = p.add_run(text)
             set_font_style(run, size=12, bold=(col_idx % 2 == 0))
-            
     doc.add_paragraph()
 
     # 命題教師修改及說明
     p = doc.add_paragraph()
     run = p.add_run("命題教師修改及說明")
     set_font_style(run, size=14, bold=True, color=RGBColor(91, 124, 153))
-    
+
     feedback_table = doc.add_table(rows=1, cols=1)
     feedback_table.style = 'Table Grid'
     cell = feedback_table.cell(0, 0)
-    
+
     checkbox_items = [
         "無需修改試題。",
         "經命題老師確認，以下試題為AI幻覺，已判斷無需修正。\n   試題：_______________________________________________________",
         "經命題老師確認，以下試題已修正。\n   試題：_______________________________________________________"
     ]
-    
+
     for item_text in checkbox_items:
         p_check = cell.add_paragraph()
-        p_check.paragraph_format.line_spacing = 2.0 
-        
+        p_check.paragraph_format.line_spacing = 2.0
         run_box = p_check.add_run("□ ")
-        set_font_style(run_box, size=18) 
-        
+        set_font_style(run_box, size=18)
         run_text = p_check.add_run(item_text)
         set_font_style(run_text, size=12)
 
     p_other = cell.add_paragraph("其他說明：")
     set_font_style(p_other.runs[0] if p_other.runs else p_other.add_run("其他說明："), size=12)
     p_other.paragraph_format.line_spacing = 2.0
-    
+
     for _ in range(5):
         p_empty = cell.add_paragraph()
         p_empty.paragraph_format.line_spacing = 2.0
-    
+
     doc.add_paragraph()
 
     # 系統免責聲明
@@ -487,9 +443,7 @@ def create_word_report(analysis_text, metadata):
     lines = analysis_text.split('\n')
     table_mode = False
     table_data = []
-
     current_sub_header = None
-    current_main_section = None
 
     for raw_line in lines:
         stripped_line = raw_line.strip()
@@ -509,8 +463,6 @@ def create_word_report(analysis_text, metadata):
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
-
-            current_main_section = clean_text
             current_sub_header = None
             add_main_section_title(doc, clean_text)
             continue
@@ -520,9 +472,7 @@ def create_word_report(analysis_text, metadata):
                 _render_word_table(doc, table_data)
                 table_mode = False
                 table_data = []
-
             matched_sub_header = canonical_sub_header(stripped_line)
-
             add_sub_section_title(doc, matched_sub_header)
             current_sub_header = matched_sub_header
             continue
@@ -545,23 +495,17 @@ def create_word_report(analysis_text, metadata):
 
         # --- 副標文字模式：閱讀負擔 / 圖表判讀負擔 / 運算負擔 ---
         if current_sub_header in TEXT_MODE_SUBHEADERS:
-            # 若內文又以目前副標開頭，去除重複標題字樣
             normalized_clean = normalize_compare_text(clean_text)
             normalized_header = normalize_compare_text(current_sub_header)
-
             if normalized_clean.startswith(normalized_header):
                 clean_text = re.sub(
                     rf'^\s*{re.escape(current_sub_header)}\s*[：:，,。．、；;（）()]*\s*',
                     '',
                     clean_text
                 ).strip()
-
                 if not clean_text:
                     continue
-
-            # 若 AI 仍以列點開頭，移除列點符號後當一般文字輸出
             clean_text = re.sub(r'^[•\*\-]\s*', '', clean_text).strip()
-
             if clean_text:
                 add_plain_text_to_cell(doc, clean_text)
             continue
@@ -570,20 +514,18 @@ def create_word_report(analysis_text, metadata):
         if current_sub_header is not None:
             normalized_clean = normalize_compare_text(clean_text)
             normalized_header = normalize_compare_text(current_sub_header)
-
             if normalized_clean.startswith(normalized_header):
                 clean_text = re.sub(
                     rf'^\s*{re.escape(current_sub_header)}\s*[：:，,。．、；;（）()]*\s*',
                     '',
                     clean_text
                 ).strip()
-
                 if not clean_text:
                     continue
 
         if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
-            # 「各題修改建議」區塊：縮排子項目（原始行有前置空白 + -）走子項目樣式
-            if current_sub_header == "各題修改建議" and re.match(r'^\s{2,}[\-]\s+', raw_line):
+            # 「待確認試題及修改建議」區塊：縮排子項目走子項目樣式
+            if current_sub_header == "待確認試題及修改建議" and re.match(r'^\s{2,}[\-]\s+', raw_line):
                 add_indented_sub_bullet_to_cell(doc, clean_text)
             else:
                 add_bullet_to_cell(doc, clean_text)
@@ -630,7 +572,6 @@ def create_word_report(analysis_text, metadata):
         run = p_rem.add_run(line)
         set_font_style(run, size=12)
 
-    from io import BytesIO
     f = BytesIO()
     doc.save(f)
     return f.getvalue()
@@ -679,7 +620,6 @@ def _render_word_table(container, data):
                 p.paragraph_format.line_spacing = 1.5
                 p.paragraph_format.keep_together = True
                 p.paragraph_format.keep_with_next = True if r < rows - 1 else False
-
                 for run in p.runs:
                     set_font_style(run, size=12)
 
@@ -688,11 +628,9 @@ def _render_word_table(container, data):
                 for p in cell.paragraphs:
                     for run in p.runs:
                         run.font.bold = True
-                        
+
 def clean_ai_hallucinations(text):
-    """
-    針對 AI 輸出進行清洗，但保護 Markdown 表格區塊
-    """
+    """針對 AI 輸出進行清洗，但保護 Markdown 表格區塊"""
     table_blocks = []
 
     def protect_table(match):
@@ -700,7 +638,6 @@ def clean_ai_hallucinations(text):
         return f"@@TABLE_BLOCK_{len(table_blocks)-1}@@"
 
     text = re.sub(r'((?:^\|.*\|\s*$\n?){2,})', protect_table, text, flags=re.MULTILINE)
-
     text = re.sub(r'^\s*[一二三四五六七八九十0-9]+[、\.][\u4e00-\u9fa5]+\s*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'([。；：])\s*([一二三四五六七八九十\d]+-[\d]+)', r'\1\n* \2', text)
 
@@ -708,7 +645,6 @@ def clean_ai_hallucinations(text):
         header = match.group(1)
         content = match.group(2)
         lines = [line for line in content.split('\n') if line.strip()]
-
         if len(lines) > 5:
             new_content = "\n".join(lines[:5]) + "\n* (其餘優良試題略)..."
             return f"{header}\n{new_content}\n"
@@ -744,10 +680,8 @@ def log_usage(email, action):
     try:
         client = get_gspread_client()
         sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).worksheet("logs")
-
         now_str = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
         sheet.append_row([email, action, now_str])
-
     except Exception as e:
         print(f"log write error: {e}")
         st.warning("⚠️ 使用紀錄暫時無法寫入，但不影響本次審查。")
@@ -764,7 +698,6 @@ def check_session_timeout():
     elapsed = now - st.session_state["last_activity"]
     remaining = SESSION_TIMEOUT - elapsed
 
-    # 先處理已超時
     if remaining <= 0:
         st.session_state["login_logged"] = False
         st.session_state["user_email"] = ""
@@ -772,7 +705,6 @@ def check_session_timeout():
         st.session_state.pop("timeout_warning_shown", None)
         st.logout()
 
-    # 剩 5 分鐘內顯示提醒，只顯示一次
     if remaining <= WARNING_BEFORE_TIMEOUT:
         if not st.session_state.get("timeout_warning_shown", False):
             minutes_left = max(1, int(remaining // 60))
@@ -786,7 +718,6 @@ def session_watchdog():
     check_session_timeout()
 
 def check_login():
-    # 已登入時：直接放行，並把 email 存進 session_state 方便後續使用
     if st.user.is_logged_in:
         user_email = st.user.get("email", "").strip().lower()
         st.session_state["user_email"] = user_email
@@ -808,8 +739,7 @@ def check_login():
             st.session_state["login_logged"] = True
 
         return True
-        
-    # 未登入時：顯示聲明與 Google 登入按鈕
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
@@ -870,70 +800,13 @@ else:
     st.error("請設定 Secrets: GEMINI_API_KEY")
     st.stop()
 
-# --- 介面佈局：上傳區 (單欄流式排版) ---
+# --- 介面佈局：上傳區 ---
 st.subheader(" 上傳試卷 ")
 st.caption("請上傳 1 份 PDF 試卷。若為英語聽力題，請將英聽文字稿整理在同一份 PDF 試卷後面，並清楚標示對應題號（例如：第一大題第1～5題）。本系統目前不支援音檔比對，請勿上傳 mp3、wav 等音訊檔。")
 exam_file = st.file_uploader("📤 上傳試卷", type=["pdf"], key="exam_uploader", label_visibility="collapsed")
 
-# --- 按鈕區 (位於上傳區正下方) ---
-st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True) 
+st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True)
 start_btn = st.button(" 開始\n AI 審查", type="primary", use_container_width=True)
-
-# --- 進階功能區 (預設隱藏) ---
-context_files = None
-unit_list = []
-manual_model = "Gemini 3.0 Flash"
-model_mode = "智慧分流"
-
-if ENABLE_ADVANCED_FEATURES:
-    st.markdown("---")
-    st.markdown("#### ⚙️ 進階設定 (系統狀態、教材、單元、模型)")
-    
-    st.markdown("""
-    <div class="dashboard-card">
-        <b>⚪ 系統狀態：</b>待命中... 請上傳試卷<br>
-        <small>啟用檔名路由：檔名含「數/理/化/生」➔ Pro | 其餘 ➔ Flash</small>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    with st.expander("📂 參考教材與單元設定", expanded=False):
-        col_adv_1, col_adv_2 = st.columns(2)
-        with col_adv_1:
-            st.markdown("**上傳課本、習作 (可選)**")
-            context_files = st.file_uploader("拖曳參考教材", type=["pdf"], accept_multiple_files=True, key="context_uploader")
-        with col_adv_2:
-            st.markdown("**雙向細目表單元設定**")
-            if context_files:
-                unit_count = st.number_input("單元數量", min_value=1, max_value=10, value=3)
-                cols = st.columns(unit_count)
-                for i in range(unit_count):
-                    with cols[i]:
-                        u_name = st.text_input(f"單元 {i+1}", key=f"unit_{i}")
-                        if u_name: unit_list.append(u_name)
-            else:
-                st.info("💡 請先上傳教材以啟用單元編輯")
-
-    with st.expander("🧠 AI 模型核心設定", expanded=False):
-        model_mode = st.radio("模式", ["智慧分流 (建議)", "手動指定"], label_visibility="collapsed")
-        if model_mode == "手動指定":
-            manual_model = st.selectbox("核心", ["Gemini 3.0 Pro", "Gemini 3.0 Flash"], label_visibility="collapsed")
-
-# --- 審查標準 (隱藏) ---
-LITERACY_STANDARDS = """
-檢核標準：試著將題目中的「情境敘述」（故事、圖片、前言）移除，並依下方4個項度及各科真假素養審查標準檢核。
-1.情境真實性：判斷情境是否真實、是否貼近學生生活經驗。
-2.推理需求：分析學生是否需要進行推論、判斷或解釋，而非直接記憶。
-3.跨概念整合：檢查是否整合多個概念或學習單元。
-4.情境包裝程度：判斷情境是否只是包裝知識，而非解題必要條件。
-
-【各科真假素養審查標準】：
-1. 國語科：(真)閱讀依存、高階思維、多元表徵；(假)情境脫節、低階提問。
-2. 數學科：(真)功能性情境、真實解題(含雜訊)、數學建模；(假)文字堆砌、數據完美、套路解題。
-3. 英語科：(真)真實語料、語用溝通、資訊素養；(假)去脈絡化、死記硬背、文化真空。
-4. 社會科：(真)史料判讀、多重觀點、因果探究；(假)瑣碎記憶、單一觀點、結論背誦。
-5. 自然科：(真)探究歷程、解釋現象、證據論述；(假)名詞解釋、結果背誦、違背常理。
-6. 生活課程：(真)感官體驗、情境應變、實作導向；(假)規訓教條、知識超載、文字負擔。
-"""
 
 st.markdown("---")
 
@@ -949,7 +822,7 @@ if start_btn:
 
         status_box = st.empty()
         progress_bar = st.progress(0)
-        
+
         try:
             # ----------------------------------------------------
             # Phase 1: 智慧分流路由 (Smart Routing)
@@ -958,40 +831,19 @@ if start_btn:
             status_box.info(f"🔍 正在解析試卷資訊... (檔名：{filename})")
             progress_bar.progress(10)
 
-            # 1. 判斷科目屬性
-            is_science = False
-            if any(k in filename for k in ["數學", "自然", "理化", "物理", "化學", "生物"]):
-                is_science = True
-            
-            # 2. 決定模型 (核心路由邏輯)
-            target_model_name = ""
-            routing_msg = ""
+            # 理科走 Pro，其他走 Flash（flash_model_name 供 metadata 提取共用）
+            flash_model_name = get_best_flash_model(api_key)
+            is_science = any(k in filename for k in ["數學", "自然", "理化", "物理", "化學", "生物"])
+            target_model_name = get_best_pro_model(api_key) if is_science else flash_model_name
 
-            if model_mode == "手動指定" and ENABLE_ADVANCED_FEATURES:
-                if "Pro" in manual_model:
-                    target_model_name = get_best_pro_model(api_key)
-                    routing_msg = "🧠 手動指定 Pro 模型"
-                else:
-                    target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "⚡ 手動指定 Flash 模型"
-            else:
-                # 恢復品質優先的智慧分流
-                if context_files:
-                    target_model_name = get_best_pro_model(api_key)
-                    routing_msg = "📚 偵測到參考教材，啟用品質優先分析模式"
-                elif is_science:
-                    target_model_name = get_best_pro_model(api_key)
-                    routing_msg = "📐 理科試卷分析"
-                else:
-                    target_model_name = get_best_flash_model(api_key)
-                    routing_msg = "📝 文科試卷分析"
+            status_box.info("🔄 AI 審查中 ... ")
 
-            status_box.info(f"🔄 AI 審查中 ... ")
-
-            # 3. 資訊提取 (Metadata)
-            flash_model = genai.GenerativeModel(get_best_flash_model(api_key))
+            # ----------------------------------------------------
+            # Phase 2: 資訊提取 (Metadata)
+            # ----------------------------------------------------
+            flash_model = genai.GenerativeModel(flash_model_name)
             exam_ref = upload_to_gemini(exam_file)
-            
+
             meta_prompt = """
             請閱讀這份試卷，並擷取以下資訊，輸出為純 JSON 格式：
             {
@@ -1010,26 +862,20 @@ if start_btn:
                     json_str = json_str.split("```json")[1].split("```")[0]
                 metadata = json.loads(json_str)
             except Exception:
-                metadata = {"year":"", "semester":"", "grade":"", "subject":"", "exam_type":""}
+                metadata = {"year": "", "semester": "", "grade": "", "subject": "", "exam_type": ""}
             st.session_state.metadata = metadata
 
             # ----------------------------------------------------
-            # Phase 2: 深度審查 (Updated Prompt v5.6 - Final Refined)
+            # Phase 3: 深度審查
             # ----------------------------------------------------
-            
-            # 設定生成參數：Temperature = 0 (強制理性)
             generation_config = {
                 "temperature": 0.0,
                 "top_p": 1.0,
                 "top_k": 32,
             }
-            
+
             main_model = genai.GenerativeModel(target_model_name)
-            
-            prompt_parts = []
-            if context_files:
-                for cf in context_files: prompt_parts.append(upload_to_gemini(cf))
-            
+
             base_prompt = f"""
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
 目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
@@ -1104,31 +950,21 @@ if start_btn:
 * (其餘優良試題略)...
 (**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點都必須包含「題號 + 題目錨點 + 具體說明原因。)
 
-### 🟡 待確認試題
-必須**完整列出所有有問題的題目**，不可省略。  
-每題需具體說明問題，例如題幹不完整、干擾選項不足、存在提示線索等。
+### ✏️ 待確認試題及修改建議
+針對所有有問題的題目，每一題依序輸出以下結構，一題都不可省略：
 
-* 四-2（題目開頭）— 題幹資訊不足，未說明條件，可能造成多重解讀。
-* 五-1（題目開頭）— 選項 C 與 D 明顯錯誤，干擾效果不足。
-(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點都必須包含「題號 + 題目錨點 + 具體說明原因。)
-
-* **⚠️ 強制豁免守則**：
-    * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」或「選出錯誤選項」，視為 **🟢 優良試題**。
-
-### ✏️ 各題修改建議
-針對上方「待確認試題」中的**每一題**，依序逐題輸出具體修改方案。
-
-格式範例：
 * 四-2（題目開頭）
   - 【問題點】：題幹未說明計算條件，導致學生無從判斷。
   - 【修改方向】：補充前提條件，使題幹資訊完整，縮小解讀空間。
   - 【修改範例】：（直接寫出可替換使用的完整題幹或選項文字）
 
 **硬性規定**：
-1. 「待確認試題」有幾題，此處就必須對應幾題，一題都不可省略。
-2. 【修改範例】必須是**完整可直接使用**的題目文字，嚴禁只寫「建議修改為更明確的敘述」等模糊方向。
-3. 若本次試卷待確認試題為零，請寫：「本次試卷無待確認試題，無需修改建議。」
-(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
+1. 【修改範例】必須是**完整可直接使用**的題目文字，嚴禁只寫「建議修改為更明確的敘述」等模糊方向。
+2. 若本次試卷無待確認試題，請寫：「本次試卷無待確認試題。」
+3. (**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
+
+* **⚠️ 強制豁免守則**：
+    * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」或「選出錯誤選項」，視為 **🟢 優良試題**。
 
 ## 素養導向深度審查
 {LITERACY_STANDARDS}
@@ -1207,35 +1043,29 @@ if start_btn:
 若整體負擔適中，可簡要說明即可，不需過度分析。
 
 """
-            if context_files: prompt_parts.append("【參考教材】：")
-            prompt_parts.append(base_prompt)
-            prompt_parts.append("【待審查試卷】：")
-            prompt_parts.append(exam_ref)
-            
+            prompt_parts = [base_prompt, "【待審查試卷】：", exam_ref]
+
             progress_bar.progress(60)
-            
-            # 帶入 generation_config
+
             response = main_model.generate_content(
                 prompt_parts,
                 generation_config=generation_config
             )
-            
+
             progress_bar.progress(100)
-            
-            # 1. 先處理換行
+
             raw_text = response.text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
-            
-            # 2. 呼叫清洗函式
             final_cleaned_text = clean_ai_hallucinations(raw_text)
-            
-            status_box.success(f"✅ 分析完成！")
-            
+
+            status_box.success("✅ 分析完成！")
+
             st.session_state.analysis_result = final_cleaned_text
             st.session_state.used_model_name = target_model_name
-            
+
         except Exception as e:
             st.error(f"發生錯誤: {e}")
-            if "429" in str(e): st.warning("💡 提示：目前 AI 忙線中，請稍後再試。")
+            if "429" in str(e):
+                st.warning("💡 提示：目前 AI 忙線中，請稍後再試。")
 
 # --- 結果顯示與 Word 生成 ---
 if st.session_state.analysis_result:
@@ -1246,7 +1076,7 @@ if st.session_state.analysis_result:
     if "## 題幹與邏輯品質" in normalized_result:
         summary_part, body_part = normalized_result.split("## 題幹與邏輯品質", 1)
         body_part = "## 題幹與邏輯品質" + body_part
-        
+
         summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
         summary_part = re.sub(r'\n\s*---\s*$', '', summary_part).strip()
 
@@ -1256,9 +1086,9 @@ if st.session_state.analysis_result:
     else:
         st.markdown("## 📊 審查報告")
         st.markdown(normalized_result)
-    
+
     word_binary = create_word_report(normalized_result, st.session_state.metadata)
-    
+
     st.download_button(
         label="📥 下載 Word 報告 (.docx)",
         data=word_binary,
