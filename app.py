@@ -119,19 +119,22 @@ def build_section_structure_text(sections):
     return "\n".join(lines) + "\n\n"
 
 def render_curriculum_notice(curriculum: dict):
-    """在審查結果上方顯示教學重點比對說明"""
+    """在審查結果上方顯示教學重點比對說明（無論是否比對都顯示）"""
     match_type = curriculum.get("match_type", "none")
     label      = curriculum.get("label", "")
 
     if match_type == "exact":
-        st.info(f"📚 本次審查已帶入「{label}」教學重點作為命題範圍參考。")
+        st.info(f"📚 **比對範圍：{label}**（精確比對成功，已帶入教學重點作為命題範圍參考。）")
     elif match_type == "semester":
         st.info(
-            f"📚 本次審查已帶入「{label}」完整教學重點作為命題範圍參考。\n\n"
-            "（系統未能精確比對評量類別，已改用整學期範圍。"
+            f"📚 **比對範圍：{label}**（系統未能精確比對評量類別，已改用整學期範圍。"
             "建議老師確認題目範圍是否符合本次評量進度。）"
         )
-    # match_type == "none" 時靜默不顯示
+    elif match_type == "skipped":
+        st.info("📚 **比對範圍：未比對**（本次審查未啟用教學重點比對。）")
+    else:
+        # none：勾選了但 Sheets 查無資料
+        st.info("📚 **比對範圍：未比對**（Sheets 中查無對應教學重點資料，請教務處確認是否已建置。）")
 
 # ==========================================
 # 3. 登入與 Session 管理
@@ -260,6 +263,13 @@ st.subheader(" 上傳試卷 ")
 st.caption("請上傳 1 份 PDF 試卷。若為英語聽力題，請將英聽文字稿整理在同一份 PDF 試卷後面，並清楚標示對應題號（例如：第一大題第1～5題）。本系統目前不支援音檔比對，請勿上傳 mp3、wav 等音訊檔。")
 exam_file = st.file_uploader("📤 上傳試卷", type=["pdf"], key="exam_uploader", label_visibility="collapsed")
 
+# 教學重點比對勾選
+col_check, col_hint = st.columns([1, 3])
+with col_check:
+    use_curriculum = st.checkbox("📋 比對教學重點", value=False, key="use_curriculum")
+with col_hint:
+    st.caption("建議數學、自然、社會勾選")
+
 st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True)
 start_btn = st.button(" 開始\n AI 審查", type="primary", use_container_width=True)
 
@@ -334,16 +344,33 @@ if start_btn:
             progress_bar.progress(35)
 
             # --------------------------------------------------
-            # Phase 2b：查詢 Google Sheets 教學重點
+            # Phase 2b：查詢 Google Sheets 教學重點（依勾選狀態）
             # --------------------------------------------------
-            status_box.info("📚 正在比對教學重點資料...")
-            curriculum_info = get_curriculum_standards(
-                grade     = metadata.get("grade", ""),
-                subject   = metadata.get("subject", ""),
-                semester  = metadata.get("semester", ""),
-                exam_type = metadata.get("exam_type", ""),
-            )
+            if use_curriculum:
+                status_box.info("📚 正在比對教學重點資料...")
+                curriculum_info = get_curriculum_standards(
+                    grade     = metadata.get("grade", ""),
+                    subject   = metadata.get("subject", ""),
+                    semester  = metadata.get("semester", ""),
+                    exam_type = metadata.get("exam_type", ""),
+                )
+            else:
+                # 未勾選：直接標記為 skipped，不查詢 Sheets
+                curriculum_info = {"standards": "", "match_type": "skipped", "label": ""}
+
             st.session_state.curriculum_info = curriculum_info
+
+            # 將比對結果文字寫入 metadata，供 Word 報告使用
+            match_type = curriculum_info.get("match_type", "none")
+            label      = curriculum_info.get("label", "")
+            if match_type == "exact":
+                metadata["curriculum_display"] = f"比對範圍：{label}（精確比對）"
+            elif match_type == "semester":
+                metadata["curriculum_display"] = f"比對範圍：{label}（整學期範圍）"
+            elif match_type == "skipped":
+                metadata["curriculum_display"] = "未比對（未勾選）"
+            else:
+                metadata["curriculum_display"] = "未比對（查無資料）"
             progress_bar.progress(50)
             status_box.info("🔄 AI 審查中 ... ")
 
