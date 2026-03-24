@@ -155,6 +155,14 @@ def add_plain_text_to_cell(container, text):
     set_font_style(run, size=12)
     return p
 
+def add_note_text(container, text):
+    """在表格下方渲染註解文字（灰色小字）"""
+    p = container.add_paragraph()
+    p.paragraph_format.left_indent = Cm(0.75)
+    p.paragraph_format.space_before = Pt(2)
+    run = p.add_run(text)
+    set_font_style(run, size=10, color=RGBColor(120, 120, 120))
+
 # ==========================================
 # 表格輔助
 # ==========================================
@@ -170,14 +178,42 @@ def prevent_row_break(row):
     cant_split = OxmlElement('w:cantSplit')
     tr_pr.append(cant_split)
 
+# 判斷一行是否為表格註解行的 pattern
+_NOTE_PATTERN = re.compile(
+    r'^\s*[\(（]?\s*(?:註|Note|備註|說明|因|＊|※)',
+    re.IGNORECASE,
+)
+
+
+def _is_table_note_row(cells):
+    """判斷某一列的內容是否為註解（如「（註：因版面缺失...）」）"""
+    # 如果這一列只有第一個 cell 有文字，且符合註解 pattern
+    combined = " ".join(c.strip() for c in cells).strip()
+    if not combined:
+        return False
+    # 全部文字合併檢查
+    return bool(_NOTE_PATTERN.match(combined))
+
+
 def _render_word_table(container, data):
+    """渲染 Markdown 表格為 Word 表格，若最後幾列為註解則抽出到表格外"""
     if not data:
         return
     rows_data = parse_markdown_table_rows(data) if isinstance(data[0], str) else data
     if not rows_data:
         return
+
+    # 分離註解列：從尾端開始檢查
+    note_rows = []
+    while len(rows_data) > 1 and _is_table_note_row(rows_data[-1]):
+        note_rows.insert(0, rows_data.pop())
+
+    if not rows_data:
+        return
+
     rows = len(rows_data)
     cols = max(len(row) for row in rows_data)
+
     table = container.add_table(rows=rows, cols=cols)
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -213,6 +249,12 @@ def _render_word_table(container, data):
                 for p in cell.paragraphs:
                     for run in p.runs:
                         run.font.bold = True
+
+    # 渲染抽出的註解列到表格下方
+    for note_row in note_rows:
+        note_text = " ".join(c.strip() for c in note_row if c.strip())
+        if note_text:
+            add_note_text(container, note_text)
 
 # ==========================================
 # Word 表格去重
@@ -295,17 +337,15 @@ def create_word_report(analysis_text, metadata):
             set_font_style(run, size=12, bold=(col_idx % 2 == 0))
     doc.add_paragraph()
 
-    # 整合通知區塊（教學重點比對失敗才顯示 + 系統限制）
+    # 整合通知區塊
     notice_lines = []
     curriculum_display = metadata.get("curriculum_display", "")
     if curriculum_display:
         notice_lines.append(curriculum_display)
-
     notice_lines.append(
         "⚠️ 系統限制：本系統僅針對試題內容進行深度分析，"
         "未檢核試卷形式（如題號連貫性、配分加總正確性），請老師務必自行審閱。"
     )
-
     notice_table = doc.add_table(rows=1, cols=1)
     notice_table.style = 'Table Grid'
     notice_cell = notice_table.cell(0, 0)
