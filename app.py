@@ -300,6 +300,27 @@ def add_bullet_to_cell(container, text):
     set_font_style(run_text, size=12)
     return p
 
+def add_indented_sub_bullet_to_cell(container, text):
+    """用於「各題修改建議」區塊內的縮排子項目（問題點／修改方向／修改範例）"""
+    p = container.add_paragraph()
+    p.paragraph_format.left_indent = Cm(2.0)
+    p.paragraph_format.first_line_indent = Cm(0)
+
+    run_bullet = p.add_run("－ ")
+    set_font_style(run_bullet, size=12, color=RGBColor(111, 133, 158))
+
+    # 粗體顯示標籤（如【問題點】）
+    label_match = re.match(r'^(【[^】]+】：?)(.*)', text, re.DOTALL)
+    if label_match:
+        run_label = p.add_run(label_match.group(1))
+        set_font_style(run_label, size=12, bold=True)
+        run_content = p.add_run(label_match.group(2))
+        set_font_style(run_content, size=12)
+    else:
+        run_text = p.add_run(text)
+        set_font_style(run_text, size=12)
+    return p
+
 def add_plain_text_to_cell(container, text):
     p = container.add_paragraph()
     p.paragraph_format.left_indent = Cm(0.75)
@@ -315,6 +336,7 @@ SUB_HEADER_ALIASES = {
     "後續優化建議": "後續優化建議",
     "優良試題": "優良試題",
     "待確認試題": "待確認試題",
+    "各題修改建議": "各題修改建議",
     "真素養": "真素養",
     "假素養/待確認": "假素養/待確認",
     "通過 (無敏感議題)": "通過 (無敏感議題)",
@@ -344,6 +366,8 @@ def canonical_sub_header(text):
         return "值得讚許之處"
     if normalized.startswith("後續優化建議"):
         return "後續優化建議"
+    if normalized.startswith("各題修改建議"):
+        return "各題修改建議"
 
     for alias, canonical in SUB_HEADER_ALIASES.items():
         if normalized.startswith(alias):
@@ -558,7 +582,11 @@ def create_word_report(analysis_text, metadata):
                     continue
 
         if re.match(r'^[\*\-]\s+', stripped_line) or re.match(r'^\d+\.\s*', stripped_line):
-            add_bullet_to_cell(doc, clean_text)
+            # 「各題修改建議」區塊：縮排子項目（原始行有前置空白 + -）走子項目樣式
+            if current_sub_header == "各題修改建議" and re.match(r'^\s{2,}[\-]\s+', raw_line):
+                add_indented_sub_bullet_to_cell(doc, clean_text)
+            else:
+                add_bullet_to_cell(doc, clean_text)
         else:
             if current_sub_header is not None:
                 add_bullet_to_cell(doc, clean_text)
@@ -1086,6 +1114,21 @@ if start_btn:
 
 * **⚠️ 強制豁免守則**：
     * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」或「選出錯誤選項」，視為 **🟢 優良試題**。
+
+### ✏️ 各題修改建議
+針對上方「待確認試題」中的**每一題**，依序逐題輸出具體修改方案。
+
+格式範例：
+* 四-2（題目開頭）
+  - 【問題點】：題幹未說明計算條件，導致學生無從判斷。
+  - 【修改方向】：補充前提條件，使題幹資訊完整，縮小解讀空間。
+  - 【修改範例】：（直接寫出可替換使用的完整題幹或選項文字）
+
+**硬性規定**：
+1. 「待確認試題」有幾題，此處就必須對應幾題，一題都不可省略。
+2. 【修改範例】必須是**完整可直接使用**的題目文字，嚴禁只寫「建議修改為更明確的敘述」等模糊方向。
+3. 若本次試卷待確認試題為零，請寫：「本次試卷無待確認試題，無需修改建議。」
+(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
 
 ## 素養導向深度審查
 {LITERACY_STANDARDS}
