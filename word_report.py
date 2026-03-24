@@ -1,5 +1,6 @@
 import re
 from io import BytesIO
+from collections import Counter
 import time
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
@@ -254,7 +255,6 @@ def _deduplicate_word_table_lines(lines):
     if not table_blocks:
         return lines
 
-    from collections import Counter
     header_counts = Counter(tb["header_norm"] for tb in table_blocks)
     duplicate_headers = {h for h, c in header_counts.items() if c > 1}
 
