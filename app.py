@@ -12,6 +12,8 @@ from utils import (
     normalize_analysis_tables,
     clean_ai_hallucinations,
     log_usage,
+    get_curriculum_standards,
+    build_curriculum_prompt_text,
 )
 from word_report import create_word_report
 
@@ -109,12 +111,27 @@ def build_section_structure_text(sections):
     lines = ["【本試卷大題結構（由系統預先掃描，請以此為準）】："]
     for s in sections:
         number = s.get("number", "")
-        stype = s.get("type", "")
-        rng = s.get("range", "")
+        stype  = s.get("type", "")
+        rng    = s.get("range", "")
         range_text = f"，題號 {rng}" if rng else ""
         lines.append(f"第{number}大題（{number}）：{stype}{range_text}")
     lines.append("⚠️ 審查時若你的題號對應與上表不符，請優先相信上表，並標記「題號存疑，請人工確認」。")
     return "\n".join(lines) + "\n\n"
+
+def render_curriculum_notice(curriculum: dict):
+    """在審查結果上方顯示教學重點比對說明"""
+    match_type = curriculum.get("match_type", "none")
+    label      = curriculum.get("label", "")
+
+    if match_type == "exact":
+        st.info(f"📚 本次審查已帶入「{label}」教學重點作為命題範圍參考。")
+    elif match_type == "semester":
+        st.info(
+            f"📚 本次審查已帶入「{label}」完整教學重點作為命題範圍參考。\n\n"
+            "（系統未能精確比對評量類別，已改用整學期範圍。"
+            "建議老師確認題目範圍是否符合本次評量進度。）"
+        )
+    # match_type == "none" 時靜默不顯示
 
 # ==========================================
 # 3. 登入與 Session 管理
@@ -127,13 +144,13 @@ def check_session_timeout():
         st.session_state["last_activity"] = time.time()
         return
 
-    now = time.time()
+    now     = time.time()
     elapsed = now - st.session_state["last_activity"]
     remaining = SESSION_TIMEOUT - elapsed
 
     if remaining <= 0:
         st.session_state["login_logged"] = False
-        st.session_state["user_email"] = ""
+        st.session_state["user_email"]   = ""
         st.session_state.pop("last_activity", None)
         st.session_state.pop("timeout_warning_shown", None)
         st.logout()
@@ -160,7 +177,7 @@ def check_login():
             st.info(f"本系統僅限 {ALLOWED_EMAIL_DOMAIN} 網域帳號使用。")
             if st.button("登出並重新登入", key="unauthorized_logout"):
                 st.session_state["login_logged"] = False
-                st.session_state["user_email"] = ""
+                st.session_state["user_email"]   = ""
                 st.logout()
             st.stop()
 
@@ -201,7 +218,7 @@ def check_login():
 
 if "logout" in st.query_params:
     st.session_state["login_logged"] = False
-    st.session_state["user_email"] = ""
+    st.session_state["user_email"]   = ""
     st.logout()
 
 if not check_login():
@@ -213,9 +230,10 @@ session_watchdog()
 # 5. 主流程
 # ==========================================
 
-if "analysis_result" not in st.session_state: st.session_state.analysis_result = None
-if "used_model_name" not in st.session_state: st.session_state.used_model_name = ""
-if "metadata" not in st.session_state: st.session_state.metadata = {}
+if "analysis_result"  not in st.session_state: st.session_state.analysis_result  = None
+if "used_model_name"  not in st.session_state: st.session_state.used_model_name  = ""
+if "metadata"         not in st.session_state: st.session_state.metadata          = {}
+if "curriculum_info"  not in st.session_state: st.session_state.curriculum_info   = {}
 
 st.title("北屯區建功國小AI審題系統")
 user_email = st.session_state.get("user_email", "")
@@ -256,7 +274,7 @@ if start_btn:
         if user_email:
             log_usage(user_email, "ai_review")
 
-        status_box = st.empty()
+        status_box  = st.empty()
         progress_bar = st.progress(0)
 
         try:
@@ -267,7 +285,6 @@ if start_btn:
             status_box.info(f"🔍 正在解析試卷資訊... (檔名：{filename})")
             progress_bar.progress(10)
 
-            # Flash model 名稱供後續共用
             flash_model_name = get_best_flash_model(api_key)
             is_science = any(k in filename for k in ["數學", "自然", "理化", "物理", "化學", "生物"])
             target_model_name = get_best_pro_model(api_key) if is_science else flash_model_name
@@ -276,7 +293,7 @@ if start_btn:
             # Phase 2：資訊提取（Metadata + 大題結構）
             # --------------------------------------------------
             flash_model = genai.GenerativeModel(flash_model_name)
-            exam_ref = upload_to_gemini(exam_file)
+            exam_ref    = upload_to_gemini(exam_file)
 
             meta_prompt = """
 請閱讀這份試卷，擷取以下資訊，輸出為**純 JSON 格式**，不可加任何說明文字或 markdown：
@@ -308,10 +325,26 @@ if start_btn:
                     json_str = json_str.split("```")[1].split("```")[0]
                 metadata = json.loads(json_str)
             except Exception:
-                metadata = {"year": "", "semester": "", "grade": "", "subject": "", "exam_type": "", "sections": []}
+                metadata = {
+                    "year": "", "semester": "", "grade": "",
+                    "subject": "", "exam_type": "", "sections": []
+                }
 
             st.session_state.metadata = metadata
-            progress_bar.progress(40)
+            progress_bar.progress(35)
+
+            # --------------------------------------------------
+            # Phase 2b：查詢 Google Sheets 教學重點
+            # --------------------------------------------------
+            status_box.info("📚 正在比對教學重點資料...")
+            curriculum_info = get_curriculum_standards(
+                grade     = metadata.get("grade", ""),
+                subject   = metadata.get("subject", ""),
+                semester  = metadata.get("semester", ""),
+                exam_type = metadata.get("exam_type", ""),
+            )
+            st.session_state.curriculum_info = curriculum_info
+            progress_bar.progress(50)
             status_box.info("🔄 AI 審查中 ... ")
 
             # --------------------------------------------------
@@ -325,15 +358,39 @@ if start_btn:
 
             main_model = genai.GenerativeModel(target_model_name)
 
-            # 動態大題結構注入
-            section_structure_text = build_section_structure_text(metadata.get("sections", []))
+            # 動態注入：大題結構 + 教學重點
+            section_structure_text  = build_section_structure_text(metadata.get("sections", []))
+            curriculum_prompt_text  = build_curriculum_prompt_text(curriculum_info)
+
+            # 題幹檢查面向：有教學重點時加第4面向
+            curriculum_check_point = ""
+            if curriculum_info.get("standards"):
+                curriculum_check_point = (
+                    "4. 命題範圍符合性：對照上方教學重點清單，"
+                    "檢查該題考查的知識點是否在本次評量範圍內。"
+                    "若超出範圍，於「待確認試題及修改建議」標記「⚠️ 疑似超出命題範圍」。"
+                )
+
+            # 雙向細目表補充說明：有教學重點時加入
+            curriculum_taxonomy_note = ""
+            if curriculum_info.get("standards"):
+                curriculum_taxonomy_note = (
+                    "6. 認知向度的分類請同時參照上方教學重點清單，"
+                    "確認各題對應的知識點後再判斷認知層次，不可僅憑題目文字猜測。"
+                )
+
+            # 難易度補充說明：有教學重點時加入
+            curriculum_difficulty_note = ""
+            if curriculum_info.get("standards"):
+                curriculum_difficulty_note = (
+                    "5. 難易度請以上方教學重點清單為基準（詳見清單說明）。"
+                )
 
             base_prompt = f"""
 你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
 目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
 
-{section_structure_text}
-**【台灣試卷三大排版閱讀協定 (Taiwan Exam Layout Protocol)】：**
+{section_structure_text}{curriculum_prompt_text}**【台灣試卷三大排版閱讀協定 (Taiwan Exam Layout Protocol)】：**
 請先掃描整份試卷的幾何結構，並嚴格依照下列 **3 種模式** 擇一執行閱讀：
 
 **Mode 1: 不分欄 (Single Column)**
@@ -372,7 +429,7 @@ if start_btn:
 6. **拒絕模糊論述**：每項分析必須具體列出是哪幾題。
 7. **先在內部完成檢查，再輸出**：自行檢查題號前後一致、表格完整、百分比合理後再輸出。
 8. **除指定表格外，禁止自行發明其他表格或格式。**
-9. **題號錨點驗證**：輸出每道題的題號後，必須能在試卷中找到對應的題目開頭文字作為錨點。若找不到，請標記「⚠️ 題號存疑，請人工確認」，嚴禁強行對應。
+9. **題號錨點驗證**：若找不到對應題目開頭文字，請標記「⚠️ 題號存疑，請人工確認」，嚴禁強行對應。
 
 請嚴格依照以下順序輸出 Markdown 報告：
 
@@ -390,10 +447,11 @@ if start_btn:
 提出可提升試卷品質的建議。
 
 ## 題幹與邏輯品質
-評估每一題時，請從以下三個面向進行內部檢查：
+評估每一題時，請從以下面向進行內部檢查：
 1. 題幹完整性（題幹資訊是否完整、是否缺乏必要條件、是否存在無法作答情形）
 2. 選項與干擾品質（選項是否具有合理干擾性，是否存在明顯錯誤選項或選項長度差異過大）
 3. 是否存在提示線索（題幹或選項是否提供過度提示）
+{curriculum_check_point}
 
 輸出時在每一題的說明中自然說明優點或問題，不必逐項列出。
 
@@ -455,7 +513,10 @@ if start_btn:
 | 評鑑 |  |  |
 | 創造 |  |  |
 
-硬性規定：六列，百分比，總和 100%，不可留空整列，本段除上表不可輸出任何文字。
+硬性規定：
+1. 六列，比重用百分比，總和 100%，不可留空整列。
+2. 本段除上表不可輸出任何文字。
+{curriculum_taxonomy_note}
 
 ## 難易度與負擔分析
 請**只能**輸出以下 Markdown 表格：
@@ -466,7 +527,10 @@ if start_btn:
 | 中 |  |  |
 | 難 |  |  |
 
-硬性規定：三列，百分比，總和 100%，對應題號寫具體題號。
+硬性規定：
+1. 三列，比重用百分比，總和 100%。
+2. 對應題號寫具體題號，不可只寫「略」或「多題」。
+{curriculum_difficulty_note}
 
 接著輸出整體作答負擔觀察：
 
@@ -495,8 +559,8 @@ if start_btn:
             final_cleaned_text = clean_ai_hallucinations(raw_text)
 
             status_box.success("✅ 分析完成！")
-            st.session_state.analysis_result = final_cleaned_text
-            st.session_state.used_model_name = target_model_name
+            st.session_state.analysis_result  = final_cleaned_text
+            st.session_state.used_model_name   = target_model_name
 
         except Exception as e:
             st.error(f"發生錯誤: {e}")
@@ -507,11 +571,14 @@ if start_btn:
 if st.session_state.analysis_result:
     normalized_result = normalize_analysis_tables(st.session_state.analysis_result)
 
+    # 教學重點比對說明（精確/整學期/無）
+    render_curriculum_notice(st.session_state.curriculum_info)
+
     st.warning("⚠️ **系統限制與聲明**：本系統僅針對試題內容進行深度分析，**未檢核**「命題範圍」與「試卷形式」（如題號連貫性、配分加總正確性），請老師務必自行審閱。")
 
     if "## 題幹與邏輯品質" in normalized_result:
         summary_part, body_part = normalized_result.split("## 題幹與邏輯品質", 1)
-        body_part = "## 題幹與邏輯品質" + body_part
+        body_part    = "## 題幹與邏輯品質" + body_part
         summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
         summary_part = re.sub(r'\n\s*---\s*$', '', summary_part).strip()
         st.info(summary_part)
