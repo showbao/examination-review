@@ -268,6 +268,15 @@ def create_word_report(analysis_text, metadata):
             set_font_style(run, size=12, bold=(col_idx % 2 == 0))
     doc.add_paragraph()
 
+    # 教學重點比對說明
+    curriculum_display = metadata.get("curriculum_display", "未比對（未勾選）")
+    p_curr = doc.add_paragraph()
+    run_label = p_curr.add_run("教學重點比對：")
+    set_font_style(run_label, size=12, bold=True)
+    run_value = p_curr.add_run(curriculum_display)
+    set_font_style(run_value, size=12)
+    doc.add_paragraph()
+
     # 命題教師修改及說明
     p = doc.add_paragraph()
     run = p.add_run("命題教師修改及說明")
