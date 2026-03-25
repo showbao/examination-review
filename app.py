@@ -6,104 +6,147 @@ import time
 from datetime import timedelta
 
 from utils import (
-    get_best_flash_model,
-    get_best_pro_model,
-    upload_to_gemini,
-    normalize_analysis_tables,
-    clean_ai_hallucinations,
-    safe_parse_json,
-    call_with_retry,
-    log_usage,
-    get_curriculum_standards,
-    build_curriculum_prompt_text,
+    get_best_flash_model, get_best_pro_model, upload_to_gemini,
+    normalize_analysis_tables, clean_ai_hallucinations,
+    safe_parse_json, call_with_retry, log_usage,
+    get_curriculum_standards, build_curriculum_prompt_text,
 )
 from word_report import create_word_report
 
 # ==========================================
-# 0. 視覺風格設定 (莫蘭迪色系 & CSS)
+# 0. CSS
 # ==========================================
 st.set_page_config(page_title="北屯區建功國小AI審題系統", page_icon="📝", layout="wide")
-
 MORANDI_CSS = """
 <style>
-    html, body, [class*="css"] { font-size: 20px; }
-
-    .stApp { background-color: #F5F7F7; }
-    .stApp, .stApp p, .stApp li, .stApp span, .stApp label, .stApp div,
-    [data-testid="stMarkdownContainer"],
-    [data-testid="stMarkdownContainer"] p,
-    [data-testid="stMarkdownContainer"] li,
-    [data-testid="stText"],
-    [data-testid="stInfo"] *,
-    [data-testid="stWarning"] *,
-    [data-testid="stAlert"] * { color: #4A4A4A !important; }
-
-    table, th, td { color: #4A4A4A !important; }
-
-    h1 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.5rem !important; }
-    h2 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 2.2rem !important; font-weight: bold !important; }
-    h3 { color: #5B7C99 !important; font-family: 'Helvetica Neue', sans-serif; font-size: 1.3rem !important; font-weight: normal !important; }
-
-    div.stButton > button {
-        background-color: #FFFFFF !important;
-        color: #5B7C99 !important;
-        border: 1px solid #E0E0E0 !important;
-        border-radius: 12px;
-        box-shadow: 3px 3px 8px rgba(0,0,0,0.05), -2px -2px 6px #FFFFFF !important;
-        height: auto !important; width: auto !important;
-        padding: 10px 25px !important; margin-top: 10px;
-        font-weight: bold; font-size: 1.1rem;
-        transition: all 0.3s ease;
-        display: flex; align-items: center; justify-content: center;
-    }
-    div.stButton > button:hover {
-        background-color: #FDFDFD !important;
-        color: #8DA399 !important;
-        border: 1px solid #8DA399 !important;
-        transform: translateY(-2px);
-        box-shadow: 5px 5px 12px rgba(0,0,0,0.1), -3px -3px 8px #FFFFFF !important;
-    }
-
-    .footer {
-        position: fixed; left: 0; bottom: 0; width: 100%;
-        background-color: #F5F7F7; color: #888; text-align: center;
-        padding: 15px; font-size: 14px; border-top: 1px solid #ddd; z-index: 999;
-    }
-    .footer-spacer { height: 60px; }
+html,body,[class*="css"]{font-size:20px}
+.stApp{background-color:#F5F7F7}
+.stApp,.stApp p,.stApp li,.stApp span,.stApp label,.stApp div,
+[data-testid="stMarkdownContainer"],[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,[data-testid="stText"],
+[data-testid="stInfo"] *,[data-testid="stWarning"] *,[data-testid="stAlert"] *{color:#4A4A4A!important}
+table,th,td{color:#4A4A4A!important}
+h1{color:#5B7C99!important;font-family:'Helvetica Neue',sans-serif;font-size:2.5rem!important}
+h2{color:#5B7C99!important;font-family:'Helvetica Neue',sans-serif;font-size:2.2rem!important;font-weight:bold!important}
+h3{color:#5B7C99!important;font-family:'Helvetica Neue',sans-serif;font-size:1.3rem!important;font-weight:normal!important}
+div.stButton>button{background-color:#FFF!important;color:#5B7C99!important;border:1px solid #E0E0E0!important;
+border-radius:12px;box-shadow:3px 3px 8px rgba(0,0,0,.05),-2px -2px 6px #FFF!important;
+height:auto!important;width:auto!important;padding:10px 25px!important;margin-top:10px;
+font-weight:bold;font-size:1.1rem;transition:all .3s ease;display:flex;align-items:center;justify-content:center}
+div.stButton>button:hover{background-color:#FDFDFD!important;color:#8DA399!important;
+border:1px solid #8DA399!important;transform:translateY(-2px);
+box-shadow:5px 5px 12px rgba(0,0,0,.1),-3px -3px 8px #FFF!important}
+.footer{position:fixed;left:0;bottom:0;width:100%;background-color:#F5F7F7;color:#888;
+text-align:center;padding:15px;font-size:14px;border-top:1px solid #ddd;z-index:999}
+.footer-spacer{height:60px}
 </style>
 """
 st.markdown(MORANDI_CSS, unsafe_allow_html=True)
 
 # ==========================================
-# 1. 系統全域設定
+# 1. 全域設定
 # ==========================================
-
 ALLOWED_EMAIL_DOMAIN = "@mail.jkes.tc.edu.tw"
 SESSION_TIMEOUT = 0.5 * 60 * 60
 WARNING_BEFORE_TIMEOUT = 5 * 60
-
 SCIENCE_KEYWORDS = ["數學", "自然", "理化", "物理", "化學", "生物"]
-
 CN_NUMBERS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
-QUESTION_TYPES = [
-    "是非題", "選擇題", "填充題", "計算題", "問答題",
-    "改錯題", "配合題", "閱讀題組",
-    "國字注音", "造句題", "造詞題",
-    "其他",
-]
 
 # ==========================================
-# 2. Prompt 模組化常數
+# 2. 題型分組 & 審查標準
+# ==========================================
+QUESTION_TYPE_GROUPS = [
+    "判斷類（是非題）",
+    "選擇類（選擇題、配合題、連連看）",
+    "填寫類（填充、造詞、造句、照樣造句）",
+    "語文基礎類（國字注音、部首筆畫、標點符號、改錯）",
+    "計算應用類（計算題、應用題、看圖列式）",
+    "閱讀理解類（閱讀測驗、閱讀題組）",
+    "圖表操作類（看圖回答、畫圖題）",
+    "排序組合類（排序題、句子重組、分類題）",
+    "問答類（問答題、簡答題、短文寫作）",
+    "聽力類（聽力題）",
+    "其他（請在右方說明）",
+]
+
+def _group_key(label: str) -> str:
+    return label.split("（")[0]
+
+# 各題型審查標準——依 group key 索引
+TYPE_STANDARDS = {
+    "判斷類": (
+        "【判斷類（是非題）審查標準】\n"
+        "- 豁免規則：若錯誤敘述對應標準答案為「✕」，視為優良試題，嚴禁列為待改善。僅當錯誤觀念被標為正確答案「○」時才視為命題錯誤。\n"
+        "- 審查重點：題幹敘述是否明確（避免「通常」「大部分」等模糊用語）、一題只測一個概念、有無爭議性判斷。\n"
+        "- 常見問題：雙重否定致語意混淆、題幹過長致理解困難。\n"
+    ),
+    "選擇類": (
+        "【選擇類（選擇題、配合題、連連看）審查標準】\n"
+        "- 審查重點：選項干擾品質（誘答選項是否合理）、選項長度是否一致、有無明顯送分選項、「以上皆是/皆非」是否濫用。\n"
+        "- 配合題/連連看：配對數量是否對等、有無多對一造成消去法送分。\n"
+        "- 常見問題：正確選項明顯較長或較精確、選項間存在互相提示。\n"
+    ),
+    "填寫類": (
+        "【填寫類（填充、造詞、造句、照樣造句）審查標準】\n"
+        "- 審查重點：填空位置是否明確、預期答案是否唯一或有合理範圍、題幹是否提供足夠線索。\n"
+        "- 造句/照樣造句：指定用語或句型是否清楚、評分標準是否可操作。\n"
+        "- 常見問題：答案過於開放、缺乏上下文線索。\n"
+    ),
+    "語文基礎類": (
+        "【語文基礎類（國字注音、部首筆畫、標點符號、改錯）審查標準】\n"
+        "- 豁免規則（全年級適用）：語文基礎類屬課綱基本語文能力檢核，是正常且必要的題型，不可判定為「缺乏素養導向」或「低階記憶題」。\n"
+        "- 改錯題：若錯誤敘述對應標準答案為錯誤，視為優良試題。僅檢查錯誤設計是否可能誤導學習。\n"
+        "- 審查重點：注音是否符合教育部標準、國字是否在該年級教學範圍、一字多音是否有標示語境、破音字處理。\n"
+        "- 常見問題：罕見字超出年級範圍、破音字未標明語境。\n"
+    ),
+    "計算應用類": (
+        "【計算應用類（計算題、應用題、看圖列式）審查標準】\n"
+        "- 審查重點：計算條件是否完整（有無缺少已知數據）、是否可唯一求解、數字是否合理（避免非預期負數或非整數）、單位是否一致。\n"
+        "- 應用題：情境敘述是否清楚、多餘資訊屬素養設計可加分、是否需分步驟且有合理引導。\n"
+        "- 常見問題：資訊不足無法求解、計算結果不合常理。\n"
+    ),
+    "閱讀理解類": (
+        "【閱讀理解類（閱讀測驗、閱讀題組）審查標準】\n"
+        "- 審查重點：文本長度是否適合該年級、子題是否緊扣文本（能從文本找到依據）、有無需推論的高層次題目、能否不讀文本直接作答（若是則為假素養）。\n"
+        "- 題組處理：以題組為單位審查，先評估文本品質再逐一審查子題。題號用大題-小題格式，文本不另編號。\n"
+        "- 常見問題：文本過長致閱讀負擔、子題答案與文本無關。\n"
+    ),
+    "圖表操作類": (
+        "【圖表操作類（看圖回答、畫圖題）審查標準】\n"
+        "- 審查限制：若無法從 PDF 確認圖表細節，必須標記「⚠️ 含圖表，建議人工確認」，不可自行推測。\n"
+        "- 審查重點（若可辨識）：圖表是否清晰、圖表與題目指令是否一致、有無足夠圖例或說明。\n"
+        "- 常見問題：圖片解析度不足、圖表數據與題目矛盾。\n"
+    ),
+    "排序組合類": (
+        "【排序組合類（排序題、句子重組、分類題）審查標準】\n"
+        "- 審查重點：排序指令是否明確（遞增/遞減/時間順序）、是否有唯一正確排序、分類標準是否清楚。\n"
+        "- 常見問題：有多種合理答案但未說明、分類標準模糊致爭議。\n"
+    ),
+    "問答類": (
+        "【問答類（問答題、簡答題、短文寫作）審查標準】\n"
+        "- 審查重點：問題指令是否清楚（問什麼、答什麼、字數要求）、評分標準是否可操作、是否適合紙筆測驗的時間限制。\n"
+        "- 常見問題：問題過於開放致難以客觀評分、字數要求與配分不成比例。\n"
+    ),
+    "聽力類": (
+        "【聽力類（聽力題）審查標準】\n"
+        "- 審查限制：本系統不支援音檔比對，僅能就文字稿審查。\n"
+        "- 審查重點：文字稿與試卷題目是否對應、題號是否一致、選項設計是否合理。\n"
+        "- 常見問題：文字稿缺漏、題號對應錯誤。\n"
+    ),
+}
+
+# ==========================================
+# 3. Prompt 模組化常數
 # ==========================================
 
 LITERACY_STANDARDS = """
-檢核標準：試著將題目中的「情境敘述」（故事、圖片、前言）移除，並依下方4個項度及各科真假素養審查標準檢核。
-1.情境真實性：判斷情境是否真實、是否貼近學生生活經驗。
-2.推理需求：分析學生是否需要進行推論、判斷或解釋，而非直接記憶。
-3.跨概念整合：檢查是否整合多個概念或學習單元。
-4.情境包裝程度：判斷情境是否只是包裝知識，而非解題必要條件。
+檢核標準：試著將題目中的「情境敘述」移除，依下方4項度及各科標準檢核。
+1.情境真實性：是否真實、貼近學生生活。
+2.推理需求：是否需推論/判斷/解釋，而非直接記憶。
+3.跨概念整合：是否整合多個概念或學習單元。
+4.情境包裝程度：情境是否只是裝飾，而非解題必要條件。
 
-【各科真假素養審查標準】：
+【各科真假素養標準】：
 1. 國語科：(真)閱讀依存、高階思維、多元表徵；(假)情境脫節、低階提問。
 2. 數學科：(真)功能性情境、真實解題(含雜訊)、數學建模；(假)文字堆砌、數據完美、套路解題。
 3. 英語科：(真)真實語料、語用溝通、資訊素養；(假)去脈絡化、死記硬背、文化真空。
@@ -112,165 +155,164 @@ LITERACY_STANDARDS = """
 6. 生活課程：(真)感官體驗、情境應變、實作導向；(假)規訓教條、知識超載、文字負擔。
 """
 
-LAYOUT_PROTOCOL = """**【台灣試卷三大排版閱讀協定 (Taiwan Exam Layout Protocol)】：**
-請先掃描整份試卷的幾何結構，並嚴格依照下列 **3 種模式** 擇一執行閱讀：
-
-**Mode 1: 不分欄 (Single Column)**
-* **特徵**：A4或A3版面，整頁無明顯分隔線。
-* **閱讀順序**：標準 Z 字型（由左至右 ➡，由上而下 ⬇）。
-
-**Mode 2: 左右雙欄 (Left-Right Split)**
-* **特徵**：B4版面，中間有一條「垂直分隔線」，文字橫書（常見於數學、自然、社會、英文）。
-* **閱讀順序**：
-    1. **先讀左欄**：在左半頁範圍內，由左至右、由上而下讀取。
-    2. **再讀右欄**：移至右半頁，由左至右、由上而下讀取。
-    * *注意：嚴禁跨欄閱讀。*
-
-**Mode 3: 上下分欄 (Top-Bottom Split)**
-* **特徵**：B4版面，中間有一條「水平分隔線」，文字為**直書**（常見於國語文）。
-* **閱讀順序**：
-    1. **先讀上欄**：**由右至左 ⬅** 掃描直行文字。
-    2. **再讀下欄**：**由右至左 ⬅** 掃描直行文字。
-
-**跨欄/跨頁拼接技術**：
-* 以「題號」為唯一導航，追蹤題號連續性。
-* 若一題只有題幹沒有選項，立即去下一欄頂端或下一頁開頭尋找。
-* 嚴禁幻覺：找不到接續內容，標記「題目內容不完整」，絕對不可自行編造選項。
-"""
-
 TEACHING_RULES = """**【台灣國小教學情境守則】：**
-1. **是非題/改錯題 絕對豁免**：是非題或改錯題若錯誤敘述對應標準答案為「X」，視為**優良試題**，嚴禁列為待改善。只有當錯誤觀念被標示為「正確答案 (O)」時，才視為命題錯誤。
-2. **在地化教學標準**：讀音、定義或格式以台灣國小教學現場慣例為準。
-3. **圖表審查限制**：若題目含有圖表（折線圖、幾何圖形、統計表等），且無法從 PDF 中確認圖表數值或細節，請標記為「⚠️ 含圖表，建議人工確認」，不可自行推測圖表內容後給出判斷。
-4. **國字注音題型豁免**：國小低年級（1~3年級）常見的「看注音寫國字」「看國字寫注音」「國字注音互換」等題型，屬於課綱規定的基本語文能力檢核，是正常且必要的題型，**不可**判定為「缺乏素養導向」或「低階記憶題」。審查時應著重檢查：注音是否正確、國字是否在該年級教學範圍內、是否有一字多音需特別留意的情況。若無法確認讀音正確性，標記「⚠️ 讀音請人工確認」。
+1. **在地化教學標準**：讀音、定義或格式以台灣國小教學現場慣例為準。
+2. **圖表審查限制**：若題目含圖表且無法從 PDF 確認細節，標記「⚠️ 含圖表，建議人工確認」，不可自行推測。
 """
 
-FORMAT_RULES = """**【排版與精準度憲法】：**
+FORMAT_RULES = """**【排版與精準度規則】：**
 1. 嚴禁開場白。
 2. 禁止頁碼，精準對應題號。
 3. 強制換行。
-4. **題號格式統一**：使用「**大題-小題**」格式（例如：**二-7**、**三-1**），若小題含子題則使用「**大題-小題-(子題)**」格式（例如：**三-1-(1)**、**三-1-(2)**）。嚴禁冗贅寫法。
-5. **題目錨點**：題號後方括號摘錄該題題目開頭約 5~7 個字。
-6. **拒絕模糊論述**：每項分析必須具體列出是哪幾題。
-7. **先在內部完成檢查，再輸出**：自行檢查題號前後一致、表格完整、百分比合理後再輸出。
-8. **除指定表格外，禁止自行發明其他表格或格式。**
-9. **題號錨點驗證**：若找不到對應題目開頭文字，請標記「⚠️ 題號存疑，請人工確認」，嚴禁強行對應。
+4. **題號格式統一**：「**大題-小題**」（如 二-7）；含子題用「**大題-小題-(子題)**」（如 三-1-(1)）。
+5. **題目錨點**：題號後括號摘錄該題開頭約 5~7 字。
+6. **拒絕模糊論述**：每項分析必須列出具體題號。
+7. **除指定表格外，禁止自行發明其他表格或格式。**
+8. **題號錨點驗證**：找不到對應文字請標記「⚠️ 題號存疑，請人工確認」，嚴禁強行對應。
+9. **輸出前務必執行下方【自檢步驟】。**
 
 **【題號格式範例】：**
 ✅ 正確：一-3、二-7、三-12、三-1-(1)、三-1-(2)
-❌ 錯誤：第一大題第3小題、1-3、壹-3、二(7)、三-1(1)、三-1-a
+❌ 錯誤：第一大題第3小題、1-3、壹-3、二(7)、三-1(1)
 """
 
-SELF_CHECK_INSTRUCTIONS = """
+SELF_CHECK = """
 **【輸出前自檢步驟（不可跳過）】：**
-1. 列出你在報告中引用的所有題號，逐一確認每個題號都能在試卷中找到對應文字。
-2. 確認沒有引用超出各大題 range 的題號（例如第一大題只有 1-10，不可出現一-11）。
+1. 逐一確認報告中引用的所有題號都能在試卷中找到對應文字。
+2. 確認沒有引用超出各大題 range 的題號。
 3. 確認雙向細目表和難易度表的題號總數與試卷實際題數一致。
 4. 若任何題號無法確認，標記「⚠️ 題號存疑，請人工確認」。
 """
 
 
 # ==========================================
-# 3. 輔助函式
+# 4. 動態 Prompt 建構函式
 # ==========================================
+
+def build_section_structure_text(sections, total_items=None):
+    if not sections:
+        return ""
+    lines = ["【本試卷大題結構（由系統預先掃描，請以此為準）】："]
+    for s in sections:
+        parts = [f"第{s.get('number','')}大題（{s.get('type','')}）"]
+        if s.get("range"):  parts.append(f"題號 {s['range']}")
+        if s.get("count"):  parts.append(f"共 {s['count']} 題")
+        if s.get("first_item_text"): parts.append(f"起始：「{s['first_item_text']}」")
+        lines.append(parts[0] + "，" + "，".join(parts[1:]) if len(parts) > 1 else parts[0])
+    if total_items:
+        lines.append(f"📌 全卷合計：{total_items} 題")
+    lines += ["", "⚠️ 若題號對應與上表不符，請優先相信上表並標記「⚠️ 題號存疑，請人工確認」。"]
+    return "\n".join(lines) + "\n\n"
+
+
+def build_teacher_sections_text(teacher_sections):
+    if not teacher_sections:
+        return ""
+    lines = ["【教師確認的大題結構（優先於自動偵測，不可推翻）】："]
+    total = 0
+    for s in teacher_sections:
+        number, stype, count = s["number"], s["type_display"], s["count"]
+        has_sub = s.get("has_sub_items", False)
+        total += count
+        sub = f"（含子題，以子題為最小單位審查，題號如 {number}-1-(1)）" if has_sub else ""
+        lines.append(f"第{number}大題（{stype}）：共 {count} 題{sub}")
+    lines += [f"📌 全卷合計：{total} 題", "",
+              "⚠️ 以上為教師確認，審查時請嚴格以此為準，不可推翻。"]
+    return "\n".join(lines) + "\n\n"
+
+
+def build_type_standards_text(teacher_sections):
+    """動態注入題型審查標準：有填大題結構就只注入用到的，否則注入精簡全部。"""
+    if teacher_sections:
+        used_keys = set(s.get("type_group_key", "") for s in teacher_sections)
+        used_keys.discard("")
+        used_keys.discard("其他")
+    else:
+        used_keys = set(TYPE_STANDARDS.keys())
+
+    if not used_keys:
+        used_keys = set(TYPE_STANDARDS.keys())
+
+    blocks = [TYPE_STANDARDS[k] for k in TYPE_STANDARDS if k in used_keys]
+    if not blocks:
+        return ""
+    return "**【各題型審查標準規範】：**\n\n" + "\n".join(blocks) + "\n"
+
+
+def build_layout_protocol(column_layout):
+    """根據教師選擇動態產生版面閱讀協定。"""
+    auto = "自動偵測"
+    header = "**【台灣試卷排版閱讀協定】：**\n"
+
+    mode1 = (
+        "**Mode 1: 不分欄**\n"
+        "* 特徵：A4或A3版面，整頁無明顯分隔線。\n"
+        "* 閱讀順序：標準 Z 字型（左→右，上→下）。\n"
+    )
+    mode2 = (
+        "**Mode 2: 左右雙欄**\n"
+        "* 特徵：B4版面，中間垂直分隔線，文字橫書。\n"
+        "* 閱讀順序：先讀左欄（左→右，上→下），再讀右欄。嚴禁跨欄閱讀。\n"
+    )
+    mode3 = (
+        "**Mode 3: 上下分欄**\n"
+        "* 特徵：B4版面，中間水平分隔線，文字直書。\n"
+        "* 閱讀順序：先讀上欄（右→左），再讀下欄（右→左）。\n"
+    )
+    cross = (
+        "**跨欄/跨頁拼接**：以題號為導航追蹤連續性。找不到接續內容標記「題目內容不完整」，絕不可自行編造。\n"
+    )
+
+    if column_layout == "不分欄":
+        return header + "教師指定 Mode 1，請強制使用。\n\n" + mode1 + cross
+    elif column_layout == "左右雙欄":
+        return header + "教師指定 Mode 2，請強制使用。\n\n" + mode2 + cross
+    elif column_layout == "上下兩列":
+        return header + "教師指定 Mode 3，請強制使用。\n\n" + mode3 + cross
+    else:
+        return header + "請先掃描試卷幾何結構，擇一執行：\n\n" + mode1 + "\n" + mode2 + "\n" + mode3 + "\n" + cross
+
+
+def build_layout_info_text(paper_dir, col_layout, text_dir, numbering):
+    auto = "自動偵測"
+    if all(v == auto for v in [paper_dir, col_layout, text_dir, numbering]):
+        return ""
+    lines = ["【教師確認的版面資訊（不可推翻）】："]
+    if paper_dir != auto:   lines.append(f"- 紙張方向：{paper_dir}")
+    if text_dir != auto:    lines.append(f"- 文字方向：{text_dir}")
+    if numbering != auto:
+        lines.append(f"- 題號編排：{numbering}")
+        if numbering == "各大題獨立編號":
+            lines.append("  → 每大題小題從 1 開始，用「大題-小題」格式")
+        else:
+            lines.append("  → 全卷題號連續")
+    return "\n".join(lines) + "\n\n"
+
+
+def determine_model(subject_text, filename, api_key):
+    source = (subject_text or "") + (filename or "")
+    if any(k in source for k in SCIENCE_KEYWORDS):
+        return get_best_pro_model(api_key)
+    return get_best_flash_model(api_key)
+
+
+def render_system_notice(curriculum):
+    match_type = curriculum.get("match_type", "none")
+    parts = []
+    if match_type == "none":
+        parts.append("📚 **注意**：已嘗試比對教學重點但查無資料，請教務處確認是否已建置。命題範圍請老師自行確認。")
+        parts.append("")
+    parts.append("⚠️ **系統限制**：本系統僅針對試題內容進行深度分析，未檢核試卷形式（如題號連貫性、配分加總正確性），請老師務必自行審閱。")
+    st.info("\n\n".join(parts))
+
 
 def render_footer():
     st.markdown('<div class="footer-spacer"></div>', unsafe_allow_html=True)
     st.markdown('<div class="footer">Designed for 臺中市北屯區建功國小 | Powered by Gemini 3.0</div>', unsafe_allow_html=True)
 
 
-def build_section_structure_text(sections, total_items=None):
-    """將 AI 偵測的大題結構清單轉為 Prompt 注入文字"""
-    if not sections:
-        return ""
-    lines = ["【本試卷大題結構（由系統預先掃描，請以此為準）】："]
-    for s in sections:
-        number     = s.get("number", "")
-        stype      = s.get("type", "")
-        rng        = s.get("range", "")
-        count      = s.get("count", "")
-        first_text = s.get("first_item_text", "")
-        parts = [f"第{number}大題（{stype}）"]
-        if rng:
-            parts.append(f"題號 {rng}")
-        if count:
-            parts.append(f"共 {count} 題")
-        if first_text:
-            parts.append(f"起始文字：「{first_text}」")
-        lines.append("：".join(parts[:1]) + "，" + "，".join(parts[1:]) if len(parts) > 1 else parts[0])
-    if total_items:
-        lines.append(f"📌 全卷合計：{total_items} 題")
-    lines.append("")
-    lines.append("⚠️ 審查時若你的題號對應與上表不符，請優先相信上表，並標記「⚠️ 題號存疑，請人工確認」。")
-    return "\n".join(lines) + "\n\n"
-
-
-def build_teacher_sections_text(teacher_sections):
-    """將老師手動填寫的大題結構轉為 Prompt 注入文字"""
-    if not teacher_sections:
-        return ""
-    lines = ["【教師確認的大題結構（優先於自動偵測，不可推翻）】："]
-    total = 0
-    for s in teacher_sections:
-        number = s["number"]
-        stype  = s["type"]
-        count  = s["count"]
-        has_sub = s.get("has_sub_items", False)
-        total += count
-        sub_note = "（含子題，請以子題為最小單位審查，題號格式如 {0}-1-(1)）".format(number) if has_sub else ""
-        lines.append(f"第{number}大題（{stype}）：共 {count} 題{sub_note}")
-    lines.append(f"📌 全卷合計：{total} 題")
-    lines.append("")
-    lines.append("⚠️ 以上為教師確認的大題結構，審查時請嚴格以此為準，不可推翻。")
-    return "\n".join(lines) + "\n\n"
-
-
-def build_layout_prompt_text(paper_dir, col_layout, text_dir, numbering):
-    """將老師填寫的版面資訊轉為 Prompt 注入文字"""
-    auto = "自動偵測"
-    if all(v == auto for v in [paper_dir, col_layout, text_dir, numbering]):
-        return ""
-    lines = ["【教師確認的試卷版面資訊（優先於自動偵測，不可推翻）】："]
-    if paper_dir != auto:
-        lines.append(f"- 紙張方向：{paper_dir}")
-    if col_layout != auto:
-        mode_map = {"不分欄": "Mode 1 (Single Column)", "左右雙欄": "Mode 2 (Left-Right Split)", "上下兩列": "Mode 3 (Top-Bottom Split)"}
-        mode = mode_map.get(col_layout, "")
-        lines.append(f"- 分欄方式：{col_layout} → 請強制使用 {mode} 閱讀順序")
-    if text_dir != auto:
-        lines.append(f"- 文字方向：{text_dir}")
-    if numbering != auto:
-        lines.append(f"- 題號編排：{numbering}")
-        if numbering == "各大題獨立編號":
-            lines.append("  → 每大題小題從 1 開始，請使用「大題-小題」格式（如 一-1、二-3）")
-        else:
-            lines.append("  → 全卷題號連續，第二大題接續第一大題的題號")
-    lines.append("⚠️ 以上為教師確認的版面資訊，請優先依此閱讀試卷，不可自行推翻。")
-    return "\n".join(lines) + "\n\n"
-
-
-def determine_model(subject_text: str, filename: str, api_key: str) -> str:
-    """根據科目決定 Pro 或 Flash。優先看 AI 辨識的 subject，備援看檔名。"""
-    source = (subject_text or "") + (filename or "")
-    is_science = any(k in source for k in SCIENCE_KEYWORDS)
-    if is_science:
-        return get_best_pro_model(api_key)
-    return get_best_flash_model(api_key)
-
-
-def render_system_notice(curriculum: dict):
-    """合併顯示系統通知。比對成功不提教學重點，失敗才警告。"""
-    match_type = curriculum.get("match_type", "none")
-    parts = []
-    if match_type == "none":
-        parts.append("📚 **注意**：已嘗試比對教學重點，但查無對應資料，請教務處確認是否已建置。命題範圍請老師自行確認。")
-        parts.append("")
-    parts.append("⚠️ **系統限制**：本系統僅針對試題內容進行深度分析，未檢核試卷形式（如題號連貫性、配分加總正確性），請老師務必自行審閱。")
-    st.info("\n\n".join(parts))
-
-
 # ==========================================
-# 4. 登入與 Session 管理
+# 5. 登入
 # ==========================================
 
 def check_session_timeout():
@@ -279,484 +321,329 @@ def check_session_timeout():
     if "last_activity" not in st.session_state:
         st.session_state["last_activity"] = time.time()
         return
-    now     = time.time()
-    elapsed = now - st.session_state["last_activity"]
-    remaining = SESSION_TIMEOUT - elapsed
+    remaining = SESSION_TIMEOUT - (time.time() - st.session_state["last_activity"])
     if remaining <= 0:
-        st.session_state["login_logged"] = False
-        st.session_state["user_email"]   = ""
-        st.session_state.pop("last_activity", None)
-        st.session_state.pop("timeout_warning_shown", None)
+        for k in ["login_logged", "user_email", "last_activity", "timeout_warning_shown"]:
+            st.session_state.pop(k, None)
         st.logout()
     if remaining <= WARNING_BEFORE_TIMEOUT:
-        if not st.session_state.get("timeout_warning_shown", False):
-            minutes_left = max(1, int(remaining // 60))
-            st.warning(f"⚠️ 系統將在 {minutes_left} 分鐘後因閒置自動登出。")
+        if not st.session_state.get("timeout_warning_shown"):
+            st.warning(f"⚠️ 系統將在 {max(1,int(remaining//60))} 分鐘後自動登出。")
             st.session_state["timeout_warning_shown"] = True
     else:
         st.session_state["timeout_warning_shown"] = False
-
 
 @st.fragment(run_every=timedelta(seconds=30))
 def session_watchdog():
     check_session_timeout()
 
-
 def check_login():
     if st.user.is_logged_in:
-        user_email = st.user.get("email", "").strip().lower()
-        st.session_state["user_email"] = user_email
-        if not user_email.endswith(ALLOWED_EMAIL_DOMAIN):
+        email = st.user.get("email", "").strip().lower()
+        st.session_state["user_email"] = email
+        if not email.endswith(ALLOWED_EMAIL_DOMAIN):
             st.error("❌ 此帳號未被授權使用本系統")
-            st.info(f"本系統僅限 {ALLOWED_EMAIL_DOMAIN} 網域帳號使用。")
-            if st.button("登出並重新登入", key="unauthorized_logout"):
-                st.session_state["login_logged"] = False
-                st.session_state["user_email"]   = ""
+            st.info(f"僅限 {ALLOWED_EMAIL_DOMAIN} 網域帳號。")
+            if st.button("登出並重新登入", key="unauth_logout"):
+                st.session_state.update(login_logged=False, user_email="")
                 st.logout()
             st.stop()
         if "last_activity" not in st.session_state:
             st.session_state["last_activity"] = time.time()
-        if not st.session_state.get("login_logged", False):
-            log_usage(user_email, "login")
+        if not st.session_state.get("login_logged"):
+            log_usage(email, "login")
             st.session_state["login_logged"] = True
         return True
-
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown("## 北屯區建功國小 AI 審題系統")
         st.markdown("### ⚠️ 使用前請務必詳閱免責聲明")
         st.markdown("""
-        **使用前請詳閱以下說明：**
-        1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。**
-        2. **人工查核機制**：AI 生成內容可能存在誤差，最終試卷定稿請務必回歸教師專業判斷。
-        3. **資料隱私安全**：嚴禁上傳包含學生個資、隱私或機密敏感內容之文件。
-        4. **授權使用範圍**：本系統無償提供予臺中市北屯區建功國小教師使用。
-        """)
-    btn_col1, btn_col2, btn_col3 = st.columns([1, 2, 1])
-    with btn_col2:
+**使用前請詳閱以下說明：**
+1. **本系統運用 AI 技術輔助教師審閱試題，分析結果僅供教學參考。**
+2. **人工查核**：AI 可能存在誤差，最終定稿請回歸教師專業判斷。
+3. **資料隱私**：嚴禁上傳含學生個資、隱私或機密之文件。
+4. **授權範圍**：無償提供予臺中市北屯區建功國小教師使用。
+""")
+    b1, b2, b3 = st.columns([1, 2, 1])
+    with b2:
         if st.button("我同意聲明並使用 建功國小信箱 登入", use_container_width=True):
-            st.login()
-            st.stop()
+            st.login(); st.stop()
     render_footer()
     return False
 
-
 # ==========================================
-# 5. 登入檢查與 Session 啟動
+# 6. 啟動
 # ==========================================
-
 if "logout" in st.query_params:
-    st.session_state["login_logged"] = False
-    st.session_state["user_email"]   = ""
-    st.logout()
-
+    st.session_state.update(login_logged=False, user_email=""); st.logout()
 if not check_login():
     st.stop()
-
 session_watchdog()
 
-# ==========================================
-# 6. 主流程 — 初始化 Session State
-# ==========================================
-
-if "analysis_result" not in st.session_state:
-    st.session_state.analysis_result = None
-if "used_model_name" not in st.session_state:
-    st.session_state.used_model_name = ""
-if "metadata" not in st.session_state:
-    st.session_state.metadata = {}
-if "curriculum_info" not in st.session_state:
-    st.session_state.curriculum_info = {}
-if "teacher_sections" not in st.session_state:
-    st.session_state.teacher_sections = []
+for key, default in [("analysis_result", None), ("used_model_name", ""),
+                     ("metadata", {}), ("curriculum_info", {}), ("teacher_sections", [])]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 st.title("北屯區建功國小AI審題系統")
 user_email = st.session_state.get("user_email", "")
-
 if user_email:
-    st.markdown(
-        f"""
-<div style="margin-top:6px; margin-bottom:10px; font-size:0.95rem; color:#666666;">
-目前登入者：{user_email}
-<a href="?logout=1" target="_self" style="margin-left:8px; color:#5B7C99; text-decoration:none;">[登出]</a>
-</div>
-""",
-        unsafe_allow_html=True
-    )
+    st.markdown(f'<div style="margin-top:6px;margin-bottom:10px;font-size:.95rem;color:#666">'
+                f'目前登入者：{user_email}'
+                f' <a href="?logout=1" target="_self" style="margin-left:8px;color:#5B7C99;text-decoration:none">[登出]</a></div>',
+                unsafe_allow_html=True)
 
-if "GEMINI_API_KEY" in st.secrets:
-    api_key = st.secrets["GEMINI_API_KEY"]
-else:
-    st.error("請設定 Secrets: GEMINI_API_KEY")
-    st.stop()
+if "GEMINI_API_KEY" not in st.secrets:
+    st.error("請設定 Secrets: GEMINI_API_KEY"); st.stop()
+api_key = st.secrets["GEMINI_API_KEY"]
 
 # ==========================================
-# 7. 兩欄式上傳與設定區（比例 1:3）
+# 7. 兩欄 UI（1:3）
 # ==========================================
-
 upload_col, setting_col = st.columns([1, 3], gap="large")
 
-# --- 左欄：上傳試卷 ---
 with upload_col:
     st.subheader("📤 上傳試卷")
-    st.caption("請上傳 1 份 PDF 試卷。若為英語聽力題，請將英聽文字稿整理在同一份 PDF 後面並標示對應題號。本系統不支援音檔。")
-    exam_file = st.file_uploader(
-        "上傳試卷", type=["pdf"],
-        key="exam_uploader", label_visibility="collapsed",
-    )
+    st.caption("請上傳 1 份 PDF 試卷。英語聽力請將文字稿放在同一份 PDF 後面並標示題號。不支援音檔。")
+    exam_file = st.file_uploader("上傳試卷", type=["pdf"], key="exam_uploader", label_visibility="collapsed")
 
-# --- 右欄：試卷資訊設定 ---
 with setting_col:
     st.subheader("📐 試卷資訊設定")
 
     # 比對教學重點（最上方）
-    cur_col1, cur_col2 = st.columns([1, 3])
-    with cur_col1:
+    cc1, cc2 = st.columns([1, 3])
+    with cc1:
         use_curriculum = st.checkbox("📋 比對教學重點", value=False, key="use_curriculum")
-    with cur_col2:
+    with cc2:
         st.caption("勾選後，將比對課程計畫中的教學重點，建議數學、自然、社會可以勾選")
 
-    st.markdown('<div style="height: 4px;"></div>', unsafe_allow_html=True)
-    st.caption("以下為選填，可提升 AI 判讀準確度，不確定的欄位可留「自動偵測」。")
+    st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+    st.caption("以下為選填，可提升 AI 判讀準確度，不確定可留「自動偵測」。")
 
-    # 版面設定
-    s_col1, s_col2 = st.columns(2)
-    with s_col1:
-        paper_direction = st.selectbox(
-            "紙張方向",
-            ["自動偵測", "直式（A4）", "橫式（B4/A3）"],
-            key="paper_direction",
-        )
-        column_layout = st.selectbox(
-            "分欄方式",
-            ["自動偵測", "不分欄", "左右雙欄", "上下兩列"],
-            key="column_layout",
-        )
-    with s_col2:
-        text_direction = st.selectbox(
-            "文字方向",
-            ["自動偵測", "橫書", "直書"],
-            key="text_direction",
-        )
-        numbering_style = st.selectbox(
-            "題號編排",
-            ["自動偵測", "各大題獨立編號", "全卷連續編號"],
-            key="numbering_style",
-        )
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        paper_direction = st.selectbox("紙張方向", ["自動偵測", "直式（A4）", "橫式（B4/A3）"], key="paper_dir")
+        column_layout   = st.selectbox("分欄方式", ["自動偵測", "不分欄", "左右雙欄", "上下兩列"], key="col_layout")
+    with sc2:
+        text_direction  = st.selectbox("文字方向", ["自動偵測", "橫書", "直書"], key="text_dir")
+        numbering_style = st.selectbox("題號編排", ["自動偵測", "各大題獨立編號", "全卷連續編號"], key="numbering")
 
-    # --- 大題結構設定 ---
+    # 大題結構
     st.markdown("**大題結構**（選填，可大幅減少題號判讀錯誤）")
 
-    # 先渲染每一列大題設定
     for i, sec in enumerate(st.session_state.teacher_sections):
-        sec_c1, sec_c2, sec_c3, sec_c4 = st.columns([1, 2, 1, 1])
-        with sec_c1:
-            label_num = "第幾大題" if i == 0 else " "
+        tc1, tc2, tc3, tc4 = st.columns([1, 2, 1, 1])
+        with tc1:
             sec["number"] = st.selectbox(
-                label_num, CN_NUMBERS,
+                "第幾大題" if i == 0 else " ", CN_NUMBERS,
                 index=CN_NUMBERS.index(sec["number"]) if sec["number"] in CN_NUMBERS else 0,
-                key=f"sec_num_{i}",
-            )
-        with sec_c2:
-            label_type = "題型" if i == 0 else " "
-            sec["type"] = st.selectbox(
-                label_type, QUESTION_TYPES,
-                index=QUESTION_TYPES.index(sec["type"]) if sec["type"] in QUESTION_TYPES else 0,
-                key=f"sec_type_{i}",
-            )
-        with sec_c3:
-            label_count = "小題數" if i == 0 else " "
+                key=f"sn_{i}")
+        with tc2:
+            sel = st.selectbox(
+                "題型" if i == 0 else " ", QUESTION_TYPE_GROUPS,
+                index=QUESTION_TYPE_GROUPS.index(sec.get("type_group", QUESTION_TYPE_GROUPS[1])) if sec.get("type_group") in QUESTION_TYPE_GROUPS else 0,
+                key=f"st_{i}")
+            sec["type_group"] = sel
+            sec["type_group_key"] = _group_key(sel)
+            if sec["type_group_key"] == "其他":
+                sec["custom_type"] = st.text_input("請說明題型", value=sec.get("custom_type", ""), key=f"sc_{i}",
+                                                    placeholder="如：連連看、看圖回答...")
+                sec["type_display"] = sec.get("custom_type") or "其他"
+            else:
+                sec["type_display"] = sel
+                sec["custom_type"] = ""
+        with tc3:
             sec["count"] = st.number_input(
-                label_count, min_value=1, max_value=100, value=sec["count"],
-                key=f"sec_count_{i}",
-            )
-        with sec_c4:
-            label_sub = "含子題" if i == 0 else " "
+                "小題數" if i == 0 else " ", min_value=1, max_value=100,
+                value=sec["count"], key=f"sq_{i}")
+        with tc4:
             sec["has_sub_items"] = st.checkbox(
-                label_sub, value=sec.get("has_sub_items", False),
-                key=f"sec_sub_{i}",
-            )
+                "含子題" if i == 0 else " ",
+                value=sec.get("has_sub_items", False), key=f"ss_{i}")
 
-    # 新增 / 刪除按鈕（在列表下方）
-    sec_btn_col1, sec_btn_col2, sec_btn_spacer = st.columns([1, 1, 2])
-    with sec_btn_col1:
-        if st.button("➕ 新增大題", key="add_section"):
-            next_idx = len(st.session_state.teacher_sections)
-            next_number = CN_NUMBERS[next_idx] if next_idx < len(CN_NUMBERS) else CN_NUMBERS[-1]
-            st.session_state.teacher_sections.append(
-                {"number": next_number, "type": "選擇題", "count": 10, "has_sub_items": False}
-            )
+    bc1, bc2, _ = st.columns([1, 1, 2])
+    with bc1:
+        if st.button("➕ 新增大題", key="add_sec"):
+            idx = len(st.session_state.teacher_sections)
+            st.session_state.teacher_sections.append({
+                "number": CN_NUMBERS[idx] if idx < len(CN_NUMBERS) else CN_NUMBERS[-1],
+                "type_group": QUESTION_TYPE_GROUPS[1], "type_group_key": "選擇類",
+                "type_display": QUESTION_TYPE_GROUPS[1], "custom_type": "",
+                "count": 10, "has_sub_items": False})
             st.rerun()
-    with sec_btn_col2:
-        if st.session_state.teacher_sections and st.button("🗑️ 刪除最後一大題", key="del_section"):
-            st.session_state.teacher_sections.pop()
-            st.rerun()
-
+    with bc2:
+        if st.session_state.teacher_sections and st.button("🗑️ 刪除最後一大題", key="del_sec"):
+            st.session_state.teacher_sections.pop(); st.rerun()
 
 # ==========================================
-# 8. 開始審查按鈕
+# 8. 開始審查
 # ==========================================
-
-st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True)
+st.markdown('<div style="height:15px"></div>', unsafe_allow_html=True)
 start_btn = st.button("開始 AI 審查", type="primary", use_container_width=True)
 st.markdown("---")
 
-
-# ==========================================
-# 9. 審查主流程
-# ==========================================
-
 if start_btn:
     st.session_state["last_activity"] = time.time()
-
     if not exam_file:
-        st.warning("❌ 請務必上傳至少一份 PDF 試卷！")
+        st.warning("❌ 請上傳至少一份 PDF 試卷！")
     else:
-        if user_email:
-            log_usage(user_email, "ai_review")
-
-        status_box   = st.empty()
-        progress_bar = st.progress(0)
-
-        teacher_sections = st.session_state.teacher_sections
-
+        if user_email: log_usage(user_email, "ai_review")
+        status_box = st.empty(); progress_bar = st.progress(0)
+        teacher_secs = st.session_state.teacher_sections
         try:
-            # --------------------------------------------------
-            # Phase 1：上傳 PDF + 準備 Flash 模型
-            # --------------------------------------------------
+            # Phase 1
             filename = exam_file.name
-            status_box.info(f"🔍 正在上傳試卷... (檔名：{filename})")
+            status_box.info(f"🔍 正在上傳試卷... ({filename})")
             progress_bar.progress(5)
-
-            flash_model_name = get_best_flash_model(api_key)
-            progress_bar.progress(10)
-
-            flash_model = genai.GenerativeModel(flash_model_name)
-            exam_ref    = upload_to_gemini(exam_file)
+            flash_name = get_best_flash_model(api_key)
+            flash_model = genai.GenerativeModel(flash_name)
+            exam_ref = upload_to_gemini(exam_file)
             progress_bar.progress(20)
 
-            # --------------------------------------------------
-            # Phase 2：資訊提取（Metadata + 大題結構）
-            # --------------------------------------------------
+            # Phase 2: metadata
             status_box.info("🔍 AI 正在辨識試卷結構...")
+            lh = ""
+            if paper_direction != "自動偵測": lh += f"紙張方向：{paper_direction}。"
+            if column_layout != "自動偵測":   lh += f"分欄：{column_layout}。"
+            if text_direction != "自動偵測":  lh += f"文字：{text_direction}。"
+            if numbering_style != "自動偵測": lh += f"題號：{numbering_style}。"
 
-            layout_hints = ""
-            if paper_direction != "自動偵測":
-                layout_hints += f"教師確認紙張方向為：{paper_direction}。"
-            if column_layout != "自動偵測":
-                layout_hints += f"教師確認分欄方式為：{column_layout}。"
-            if text_direction != "自動偵測":
-                layout_hints += f"教師確認文字方向為：{text_direction}。"
-            if numbering_style != "自動偵測":
-                layout_hints += f"教師確認題號編排為：{numbering_style}。"
-
-            meta_prompt = f"""{layout_hints}
-請閱讀這份試卷，擷取以下資訊，輸出為**純 JSON 格式**，不可加任何說明文字或 markdown：
+            meta_prompt = f"""{lh}
+請閱讀試卷，輸出**純 JSON**，不可加說明或 markdown：
 {{
-    "year": "學年度 (例如 113)",
-    "semester": "學期 (例如 第一學期)",
-    "grade": "年級 (例如 六年級)",
-    "subject": "科目 (例如 數學)",
-    "exam_type": "評量類別 (例如 期末評量)",
-    "total_items": 全卷總題數 (整數),
-    "sections": [
-        {{"number": "一", "type": "是非題", "range": "1-10", "count": 10, "first_item_text": "該大題第一小題開頭5-7字"}},
-        {{"number": "二", "type": "選擇題", "range": "1-12", "count": 12, "first_item_text": "該大題第一小題開頭5-7字"}}
-    ]
+  "year":"學年度","semester":"學期","grade":"年級","subject":"科目",
+  "exam_type":"評量類別","total_items":總題數,
+  "sections":[{{"number":"一","type":"是非題","range":"1-10","count":10,"first_item_text":"開頭5-7字"}}]
 }}
-
-說明：
-- sections 請依試卷實際大題順序填寫，number 使用中文數字（一、二、三...）。
-- type 填寫該大題的題型（如是非題、選擇題、填充題、計算題、問答題、國字注音等）。
-- range 填寫該大題的小題範圍（如 1-10）。
-- count 填寫該大題的小題總數（整數）。
-- first_item_text 填寫該大題第一小題的題目開頭約 5~7 個字（作為定位錨點）。
-- total_items 填寫全卷所有小題加總的總題數。
-- 若試卷無法辨識大題結構，sections 填空陣列 []，total_items 填 0。
-- 找不到的其他欄位填入空字串。
-"""
+sections 用中文數字，找不到填空字串，sections 填 []，total_items 填 0。"""
             progress_bar.progress(25)
-            meta_response = flash_model.generate_content([meta_prompt, exam_ref])
-
-            metadata = safe_parse_json(meta_response.text)
+            meta_resp = flash_model.generate_content([meta_prompt, exam_ref])
+            metadata = safe_parse_json(meta_resp.text)
             if metadata is None:
-                metadata = {
-                    "year": "", "semester": "", "grade": "",
-                    "subject": "", "exam_type": "", "sections": [],
-                    "total_items": 0,
-                }
-                st.warning("⚠️ 試卷資訊自動擷取失敗，審查仍會繼續但部分資訊可能缺漏。")
-
-            if "sections" not in metadata:
-                metadata["sections"] = []
-            if "total_items" not in metadata:
-                metadata["total_items"] = 0
-
+                metadata = {"year":"","semester":"","grade":"","subject":"","exam_type":"","sections":[],"total_items":0}
+                st.warning("⚠️ 試卷資訊擷取失敗，審查仍會繼續。")
+            metadata.setdefault("sections", []); metadata.setdefault("total_items", 0)
             st.session_state.metadata = metadata
             progress_bar.progress(35)
 
-            # --------------------------------------------------
-            # Phase 2b：根據科目選擇最佳模型
-            # --------------------------------------------------
-            subject_from_ai = metadata.get("subject", "")
-            target_model_name = determine_model(subject_from_ai, filename, api_key)
-            status_box.info(f"🤖 已選擇模型：{target_model_name.split('/')[-1]}")
+            # Phase 2b: model selection
+            target_model = determine_model(metadata.get("subject",""), filename, api_key)
+            status_box.info(f"🤖 已選模型：{target_model.split('/')[-1]}")
 
-            # --------------------------------------------------
-            # Phase 2c：查詢 Google Sheets 教學重點
-            # --------------------------------------------------
+            # Phase 2c: curriculum
             if use_curriculum:
-                status_box.info("📚 正在比對教學重點資料...")
-                curriculum_info = get_curriculum_standards(
-                    grade     = metadata.get("grade", ""),
-                    subject   = metadata.get("subject", ""),
-                    semester  = metadata.get("semester", ""),
-                    exam_type = metadata.get("exam_type", ""),
-                )
+                status_box.info("📚 比對教學重點...")
+                cur_info = get_curriculum_standards(
+                    metadata.get("grade",""), metadata.get("subject",""),
+                    metadata.get("semester",""), metadata.get("exam_type",""))
             else:
-                curriculum_info = {"standards": "", "match_type": "skipped", "label": ""}
-
-            st.session_state.curriculum_info = curriculum_info
-
-            match_type = curriculum_info.get("match_type", "none")
-            label      = curriculum_info.get("label", "")
-            if match_type == "exact":
-                metadata["curriculum_display"] = f"比對範圍：{label}（精確比對）"
-            elif match_type == "semester":
-                metadata["curriculum_display"] = f"比對範圍：{label}（整學期範圍）"
-            elif match_type == "skipped":
-                metadata["curriculum_display"] = ""
-            else:
-                metadata["curriculum_display"] = "⚠️ 已嘗試比對教學重點但查無資料，請教務處確認是否已建置"
-
+                cur_info = {"standards":"", "match_type":"skipped", "label":""}
+            st.session_state.curriculum_info = cur_info
+            mt = cur_info.get("match_type","none"); lb = cur_info.get("label","")
+            if mt == "exact":    metadata["curriculum_display"] = f"比對範圍：{lb}（精確比對）"
+            elif mt == "semester": metadata["curriculum_display"] = f"比對範圍：{lb}（整學期）"
+            elif mt == "skipped":  metadata["curriculum_display"] = ""
+            else: metadata["curriculum_display"] = "⚠️ 比對教學重點查無資料，請教務處確認"
             progress_bar.progress(45)
-            status_box.info("🔄 AI 審查中，請稍候（通常需要 1~3 分鐘）...")
+            status_box.info("🔄 AI 審查中（約 1~3 分鐘）...")
 
-            # --------------------------------------------------
-            # Phase 3：深度審查
-            # --------------------------------------------------
-            generation_config = {
-                "temperature": 0.0,
-                "top_p": 1.0,
-                "top_k": 32,
-            }
+            # Phase 3: 組裝 prompt
+            gen_cfg = {"temperature": 0.0, "top_p": 1.0, "top_k": 32}
+            main_model = genai.GenerativeModel(target_model)
 
-            main_model = genai.GenerativeModel(target_model_name)
+            layout_info = build_layout_info_text(paper_direction, column_layout, text_direction, numbering_style)
+            layout_proto = build_layout_protocol(column_layout)
+            sec_text = build_teacher_sections_text(teacher_secs) if teacher_secs else \
+                       build_section_structure_text(metadata.get("sections",[]), metadata.get("total_items"))
+            cur_text = build_curriculum_prompt_text(cur_info)
+            type_std = build_type_standards_text(teacher_secs)
 
-            # 動態注入
-            layout_prompt_text = build_layout_prompt_text(
-                paper_direction, column_layout, text_direction, numbering_style
-            )
-            if teacher_sections:
-                section_structure_text = build_teacher_sections_text(teacher_sections)
-            else:
-                section_structure_text = build_section_structure_text(
-                    metadata.get("sections", []), metadata.get("total_items")
-                )
-            curriculum_prompt_text = build_curriculum_prompt_text(curriculum_info)
+            has_cur = bool(cur_info.get("standards"))
+            cur_check = ("4. 命題範圍符合性：對照教學重點清單，若超出範圍標記「⚠️ 疑似超出命題範圍」。" if has_cur else "")
+            cur_tax = ("6. 認知向度分類請同時參照教學重點清單。" if has_cur else "")
+            cur_diff = ("5. 難易度請以教學重點清單為基準。" if has_cur else "")
 
-            has_curriculum = bool(curriculum_info.get("standards"))
-            curriculum_check_point = ""
-            curriculum_taxonomy_note = ""
-            curriculum_difficulty_note = ""
-            if has_curriculum:
-                curriculum_check_point = (
-                    "4. 命題範圍符合性：對照上方教學重點清單，"
-                    "檢查該題考查的知識點是否在本次評量範圍內。"
-                    "若超出範圍，於「待確認試題及修改建議」標記「⚠️ 疑似超出命題範圍」。"
-                )
-                curriculum_taxonomy_note = (
-                    "6. 認知向度的分類請同時參照上方教學重點清單，"
-                    "確認各題對應的知識點後再判斷認知層次，不可僅憑題目文字猜測。"
-                )
-                curriculum_difficulty_note = (
-                    "5. 難易度請以上方教學重點清單為基準（詳見清單說明）。"
-                )
+            # 判斷哪些題型需排除素養審查
+            exempt_keys = set()
+            if teacher_secs:
+                for s in teacher_secs:
+                    if s.get("type_group_key") in ("判斷類", "語文基礎類"):
+                        exempt_keys.add(s.get("type_group_key"))
+            exempt_note = ""
+            if exempt_keys:
+                names = "、".join(exempt_keys)
+                exempt_note = f"\n⚠️ 以下題型不納入素養導向審查，直接略過：{names}。其審查依據請參照上方【各題型審查標準規範】。\n"
 
             base_prompt = f"""你是一位精通「台灣 108 課綱素養導向評量」的試題審查專家。
-目前正在審查：{metadata.get('year')}學年度 {metadata.get('subject')} 試卷。
+正在審查：{metadata.get('year','')}學年度 {metadata.get('subject','')} 試卷。
 
-{layout_prompt_text}{section_structure_text}{curriculum_prompt_text}{LAYOUT_PROTOCOL}
+{layout_info}{sec_text}{cur_text}{layout_proto}
 
+{type_std}
 {TEACHING_RULES}
 
 {FORMAT_RULES}
 
-{SELF_CHECK_INSTRUCTIONS}
+{SELF_CHECK}
 
 請嚴格依照以下順序輸出 Markdown 報告：
 
 ## 總結與建議
 ### 🔴 最優先修正 (Critical)
-若存在重大錯誤（如答案錯誤、題意錯誤、無法作答題目），請列出並說明；若無，請寫「無重大錯誤」。
+若有重大錯誤（答案錯誤、題意錯誤、無法作答），列出並說明；若無，寫「無重大錯誤」。
 
 ### ⚖️ 難度與鑑別度點評
-整體評估試卷難度分布與鑑別度是否合理。
+整體評估難度分布與鑑別度。
 
 ### 👍 值得讚許之處
-列出試卷優點（最多 5 點即可）。
+列出試卷優點（最多 5 點），**每點必須引用具體題號**說明。
 
 ### 💡 後續優化建議
-提出可提升試卷品質的建議。
+針對本試卷實際狀況提出建議，**禁止使用通用建議**，每條必須引用具體題號或具體現象。
 
 ## 題幹與邏輯品質
-評估每一題時，請從以下面向進行內部檢查：
-1. 題幹完整性（題幹資訊是否完整、是否缺乏必要條件、是否存在無法作答情形）
-2. 選項與干擾品質（選項是否具有合理干擾性，是否存在明顯錯誤選項或選項長度差異過大）
-3. 是否存在提示線索（題幹或選項是否提供過度提示）
-{curriculum_check_point}
+評估每一題，從以下面向內部檢查：
+1. 題幹完整性
+2. 選項與干擾品質
+3. 是否存在提示線索
+{cur_check}
 
-輸出時在每一題的說明中自然說明優點或問題，不必逐項列出。
+輸出時自然說明優點或問題，不逐項列出。
 
 ### 🟢 優良試題
-列出具有代表性的優良題目（3～5題）。
-* 一-2（題目開頭）— 題幹清楚、選項干擾合理，能有效檢核學生概念理解。
-* (其餘優良試題略)...
-(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點包含「題號 + 題目錨點 + 具體說明原因」。)
+3～5題代表性優良題目。
+(**強制清單**：每題換行，(*) 開頭，含「題號 + 錨點 + 原因」。)
 
 ### ✏️ 待確認試題及修改建議
-針對所有有問題的題目，每一題依序輸出以下結構，一題都不可省略：
-
+每一題依序：
 * 四-2（題目開頭）
-  - 【問題點】：題幹未說明計算條件，導致學生無從判斷。
-  - 【修改方向】：補充前提條件，使題幹資訊完整，縮小解讀空間。
-  - 【修改範例】：（直接寫出可替換使用的完整題幹或選項文字）
+  - 【問題點】：...
+  - 【修改方向】：...
+  - 【修改範例】：（完整可直接使用的文字）
 
-**硬性規定**：
-1. 【修改範例】必須是**完整可直接使用**的題目文字，嚴禁只寫模糊方向。
-2. 若本次試卷無待確認試題，請寫：「本次試卷無待確認試題。」
-3. (**強制清單**：每一題務必換行，使用列點符號 (*) 開頭。)
-
-* **⚠️ 強制豁免守則**：
-    * 是非題/改錯題/選錯題：若錯誤敘述對應標準答案為「X」，視為 **🟢 優良試題**。
+硬性規定：
+1. 【修改範例】必須完整可用，嚴禁模糊方向。
+2. 無待確認試題請寫「本次試卷無待確認試題。」
 
 ## 素養導向深度審查
-{LITERACY_STANDARDS}
+{LITERACY_STANDARDS}{exempt_note}
 ### 🟢 真素養
-列出代表性題目（3～5題），並簡述其情境與能力要求。
-(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點包含「題號 + 題目錨點 + 具體說明原因」。)
+3～5題，簡述情境與能力要求。
+(**強制清單**：(*) 開頭，含「題號 + 錨點 + 原因」。)
 
 ### 🟡 假素養/待確認
-**完整列出所有問題題目**，說明原因（情境只是裝飾、不需要推理、未整合概念等）。
-(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點包含「題號 + 題目錨點 + 具體說明原因」。)
+完整列出所有問題題目。
+(**強制清單**：(*) 開頭，含「題號 + 錨點 + 原因」。)
 
 ## 公平性與敏感度審查
-評估每一題時，請從以下兩個面向進行內部檢查：
-1. 文化公平：是否涉及文化偏見或刻板印象（性別、種族、語文、文化、職業等）。
-2. 情境熟悉度：題目情境是否可能造成背景知識差異。
-
-### 🟢 通過 (無敏感議題)
-列出代表性題目（1～3題），最後可加：
-* (其餘通過試題略)...
-(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點包含「題號 + 題目錨點 + 具體說明原因」。)
-
-### 🟡 潛在爭議 (具體指出問題)
-若存在文化偏見、情境背景差異等問題，**完整列出所有相關題目**。
-(**強制清單**：每一題務必換行，使用列點符號 (*) 開頭，每一點包含「題號 + 題目錨點 + 具體說明原因」。)
+檢查文化公平與情境熟悉度。
+若全卷無敏感議題，以一句話說明即可，不需逐題列出。
+僅在有爭議時完整列出相關題目（(*) 開頭，含題號 + 錨點 + 原因）。
 
 ## 雙向細目表核算
-請**只能**輸出以下 Markdown 表格（**僅輸出最終版，禁止輸出草稿或中間修正版本**）：
+僅輸出最終版表格（禁止草稿）：
 
 | 認知向度 | 對應題號 | 比重 |
 | --- | --- | --- |
@@ -768,13 +655,14 @@ if start_btn:
 | 創造 |  |  |
 
 硬性規定：
-1. 六列，比重用百分比，總和 100%，不可留空整列。
-2. 若需調整比重，請在內部完成計算後僅輸出最終結果，禁止輸出草稿表格。
-3. 若有註解說明（如因版面缺失某題的處理方式），請另起一行寫在表格下方，**不可寫入表格儲存格內**。
-{curriculum_taxonomy_note}
+1. 六列，比重百分比，總和 100%。
+2. 比重以**題數**計算。若試卷上可明確看到各題配分且差異顯著，請改以**配分**計算，並在表格下方註明計算方式。
+3. 以試卷上標示的最小作答單位為一題。
+4. 註解說明請寫在表格下方，不可寫入表格儲存格內。
+{cur_tax}
 
 ## 難易度與負擔分析
-請**只能**輸出以下 Markdown 表格（**僅輸出最終版，禁止輸出草稿或中間修正版本**）：
+僅輸出最終版表格（禁止草稿）：
 
 | 難易度 | 對應題號 | 比重 |
 | --- | --- | --- |
@@ -783,82 +671,58 @@ if start_btn:
 | 難 |  |  |
 
 硬性規定：
-1. 三列，比重用百分比，總和 100%。
-2. 對應題號寫具體題號，不可只寫「略」或「多題」。
-3. 若需調整比重，請在內部完成計算後僅輸出最終結果，禁止輸出草稿表格。
-4. 若有註解說明，請另起一行寫在表格下方，**不可寫入表格儲存格內**。
-{curriculum_difficulty_note}
+1. 三列，比重百分比，總和 100%。
+2. 對應題號寫具體題號。
+3. 計算方式同上（題數或配分）。
+4. 註解寫在表格下方，不可寫入儲存格。
+{cur_diff}
 
-接著輸出整體作答負擔觀察：
+接著輸出：
 
 ### 📖 閱讀負擔
-簡述試卷整體閱讀量是否適中，是否有長題幹或大量閱讀題。
+簡述整體閱讀量是否適中。
 
 ### 📊 圖表判讀負擔
-分析是否需要解讀圖表、數據或圖像資訊。
+分析是否需解讀圖表。
 
 ### 🧮 運算負擔
-分析是否需要多步驟計算或複雜推理。
+分析是否需多步驟計算。
 
-若整體負擔適中，簡要說明即可，不需過度分析。
-
+若負擔適中，簡要說明即可。
 """
             prompt_parts = [base_prompt, "【待審查試卷】：", exam_ref]
             progress_bar.progress(55)
-
-            response = call_with_retry(
-                model=main_model,
-                prompt_parts=prompt_parts,
-                generation_config=generation_config,
-                max_retries=2,
-                base_wait=15,
-                status_callback=lambda msg: status_box.info(msg),
-            )
+            response = call_with_retry(main_model, prompt_parts, gen_cfg, 2, 15,
+                                       lambda msg: status_box.info(msg))
             progress_bar.progress(95)
-
-            raw_text = response.text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
-            final_cleaned_text = clean_ai_hallucinations(raw_text)
-
+            raw = response.text.replace("<br>","\n").replace("<br/>","\n").replace("<br />","\n")
+            final = clean_ai_hallucinations(raw)
             progress_bar.progress(100)
             status_box.success("✅ 分析完成！")
-            st.session_state.analysis_result  = final_cleaned_text
-            st.session_state.used_model_name  = target_model_name
-
+            st.session_state.analysis_result = final
+            st.session_state.used_model_name = target_model
         except Exception as e:
             st.error(f"發生錯誤: {e}")
-            if "429" in str(e):
-                st.warning("💡 提示：已自動重試仍失敗，請稍後再試。")
-
+            if "429" in str(e): st.warning("💡 已自動重試仍失敗，請稍後再試。")
 
 # ==========================================
-# 10. 結果顯示與 Word 生成
+# 10. 結果顯示
 # ==========================================
-
 if st.session_state.analysis_result:
-    normalized_result = normalize_analysis_tables(st.session_state.analysis_result)
-
+    nr = normalize_analysis_tables(st.session_state.analysis_result)
     render_system_notice(st.session_state.curriculum_info)
-
-    if "## 題幹與邏輯品質" in normalized_result:
-        summary_part, body_part = normalized_result.split("## 題幹與邏輯品質", 1)
-        body_part    = "## 題幹與邏輯品質" + body_part
-        summary_part = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary_part, flags=re.MULTILINE)
-        summary_part = re.sub(r'\n\s*---\s*$', '', summary_part).strip()
-        st.info(summary_part)
-        st.markdown("---")
-        st.markdown(body_part)
+    if "## 題幹與邏輯品質" in nr:
+        summary, body = nr.split("## 題幹與邏輯品質", 1)
+        body = "## 題幹與邏輯品質" + body
+        summary = re.sub(r'^\s*[\*\-]\s+(###)', r'\1', summary, flags=re.MULTILINE)
+        summary = re.sub(r'\n\s*---\s*$', '', summary).strip()
+        st.info(summary); st.markdown("---"); st.markdown(body)
     else:
-        st.markdown("## 📊 審查報告")
-        st.markdown(normalized_result)
+        st.markdown("## 📊 審查報告"); st.markdown(nr)
 
-    word_binary = create_word_report(normalized_result, st.session_state.metadata)
-
-    st.download_button(
-        label="📥 下載 Word 報告 (.docx)",
-        data=word_binary,
+    word_bin = create_word_report(nr, st.session_state.metadata)
+    st.download_button("📥 下載 Word 報告 (.docx)", word_bin,
         file_name=f"建功國小_{st.session_state.metadata.get('subject','科目')}_審題報告.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        key="download_btn"
-    )
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="dl_btn")
 
 render_footer()
