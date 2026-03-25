@@ -94,7 +94,9 @@ def upload_to_gemini(file_obj):
 # ==========================================
 
 def clean_markdown_symbol(text):
-    text = text.replace("**", "").replace("__", "")
+    # 移除成對和殘留的 Markdown 粗體/底線標記
+    text = re.sub(r'\*{1,2}', '', text)
+    text = re.sub(r'_{1,2}', '', text)
     text = text.replace("<br>", "").replace("<br/>", "").replace("<br />", "")
     text = re.sub(r'#+\s*', '', text)
     text = re.sub(r'^[\*\-]\s+', '', text)
@@ -204,8 +206,7 @@ def deduplicate_markdown_tables(text: str) -> str:
                 break
     result_lines = [lines[i] for i in range(len(lines)) if i not in remove_lines]
     result = "\n".join(result_lines)
-    result = re.sub(r'\n{3,}', '\n\n', result)
-    return result
+    return re.sub(r'\n{3,}', '\n\n', result)
 
 
 # ==========================================
@@ -280,10 +281,7 @@ def call_with_retry(model, prompt_parts, generation_config,
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            response = model.generate_content(
-                prompt_parts, generation_config=generation_config,
-            )
-            return response
+            return model.generate_content(prompt_parts, generation_config=generation_config)
         except Exception as e:
             last_error = e
             if "429" in str(e) and attempt < max_retries:
@@ -341,7 +339,7 @@ def normalize_exam_type(raw_exam_type: str) -> str:
     return ""
 
 
-def get_curriculum_standards(grade: str, subject: str, semester: str, exam_type: str) -> dict:
+def get_curriculum_standards(grade, subject, semester, exam_type):
     result = {"standards": "", "match_type": "none", "label": ""}
     if not grade or not subject or not semester:
         return result
@@ -353,33 +351,26 @@ def get_curriculum_standards(grade: str, subject: str, semester: str, exam_type:
         if len(rows) <= 1:
             return result
         data_rows = rows[1:]
-        COL_GRADE, COL_SUBJECT, COL_SEMESTER, COL_EXAM, COL_CONTENT = 0, 1, 2, 3, 4
         exact_match = None
         semester_matches = []
         for row in data_rows:
             if len(row) < 5:
                 continue
-            row_grade   = row[COL_GRADE].strip()
-            row_subject = row[COL_SUBJECT].strip()
-            row_semester = row[COL_SEMESTER].strip()
-            row_exam    = row[COL_EXAM].strip()
-            row_content = row[COL_CONTENT].strip()
-            if not row_content:
+            rg, rs, rse, re_, rc = [row[i].strip() for i in range(5)]
+            if not rc:
                 continue
-            if row_grade == grade and row_subject == subject and row_semester == semester:
-                if normalized_exam and row_exam == normalized_exam:
-                    exact_match = row_content
+            if rg == grade and rs == subject and rse == semester:
+                if normalized_exam and re_ == normalized_exam:
+                    exact_match = rc
                     break
-                semester_matches.append(row_content)
+                semester_matches.append(rc)
         if exact_match:
-            result["standards"]  = exact_match
-            result["match_type"] = "exact"
-            result["label"]      = f"{grade} {subject} {semester} {normalized_exam}"
+            result = {"standards": exact_match, "match_type": "exact",
+                      "label": f"{grade} {subject} {semester} {normalized_exam}"}
         elif semester_matches:
-            combined = "\n".join(dict.fromkeys(semester_matches))
-            result["standards"]  = combined
-            result["match_type"] = "semester"
-            result["label"]      = f"{grade} {subject} {semester}（完整學期）"
+            result = {"standards": "\n".join(dict.fromkeys(semester_matches)),
+                      "match_type": "semester",
+                      "label": f"{grade} {subject} {semester}（完整學期）"}
     except Exception as e:
         print(f"curriculum read error: {e}")
     return result
@@ -390,8 +381,7 @@ def build_curriculum_prompt_text(curriculum: dict) -> str:
         return ""
     lines = [
         f"【本次評量對應教學重點 — {curriculum['label']}】：",
-        curriculum["standards"],
-        "",
+        curriculum["standards"], "",
         "⚠️ 以下審查請全程參照上方教學重點清單：",
         "1. 若試題考查的知識點不在清單內，於「待確認試題及修改建議」標記「⚠️ 疑似超出命題範圍」。",
         "2. 雙向細目表的認知向度分類，請以清單中各知識點的認知層次為依據。",
