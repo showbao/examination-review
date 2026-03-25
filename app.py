@@ -383,43 +383,74 @@ def render_admin_page():
             if "timestamp" not in df_logs.columns and len(df_logs.columns) >= 3:
                 df_logs.columns = ["email", "action", "timestamp"]
 
-            # 篩選
-            lc1, lc2 = st.columns(2)
+            # 解析日期欄位
+            df_logs["datetime"] = pd.to_datetime(df_logs["timestamp"], errors="coerce")
+            df_logs["date"] = df_logs["datetime"].dt.date
+
+            # 篩選列
+            lc1, lc2, lc3 = st.columns(3)
             with lc1:
                 actions = ["全部"] + sorted(df_logs["action"].unique().tolist())
                 f_action = st.selectbox("動作類型", actions, key="f_action")
             with lc2:
                 emails = ["全部"] + sorted(df_logs["email"].unique().tolist())
                 f_email = st.selectbox("教師帳號", emails, key="f_email")
+            with lc3:
+                valid_dates = df_logs["date"].dropna()
+                if len(valid_dates) > 0:
+                    min_date = valid_dates.min()
+                    max_date = valid_dates.max()
+                else:
+                    min_date = datetime.today().date()
+                    max_date = datetime.today().date()
+                f_date_range = st.date_input(
+                    "日期範圍", value=(min_date, max_date),
+                    min_value=min_date, max_value=max_date, key="f_date_range")
 
-            display = df_logs
+            # 套用篩選
+            display = df_logs.copy()
             if f_action != "全部":
                 display = display[display["action"] == f_action]
             if f_email != "全部":
                 display = display[display["email"] == f_email]
+            # 日期篩選（f_date_range 可能是 tuple 或單一日期）
+            if isinstance(f_date_range, tuple) and len(f_date_range) == 2:
+                d_start, d_end = f_date_range
+                display = display[display["date"].notna() & (display["date"] >= d_start) & (display["date"] <= d_end)]
 
-            # 統計
-            st.markdown(f"**共 {len(display)} 筆紀錄**")
+            # 統計（基於篩選後結果）
+            st.markdown(f"**篩選結果：共 {len(display)} 筆紀錄**")
 
             mc1, mc2, mc3 = st.columns(3)
-            total_reviews = len(df_logs[df_logs["action"] == "ai_review"])
-            total_logins = len(df_logs[df_logs["action"] == "login"])
-            unique_users = df_logs["email"].nunique()
-            mc1.metric("總審查次數", total_reviews)
-            mc2.metric("總登入次數", total_logins)
+            total_reviews = len(display[display["action"] == "ai_review"])
+            total_logins = len(display[display["action"] == "login"])
+            unique_users = display["email"].nunique()
+            mc1.metric("審查次數", total_reviews)
+            mc2.metric("登入次數", total_logins)
             mc3.metric("不重複使用者", unique_users)
 
-            # 每位教師審查次數
+            # 使用最多者前 5 名
             if total_reviews > 0:
-                st.markdown("**各教師審查次數**")
-                review_counts = df_logs[df_logs["action"] == "ai_review"]["email"].value_counts()
-                st.dataframe(review_counts.reset_index().rename(
-                    columns={"index": "email", "email": "教師帳號", "count": "審查次數"}),
-                    use_container_width=True, hide_index=True)
+                st.markdown("**🏆 使用最多者前 5 名**")
+                top5 = (display[display["action"] == "ai_review"]["email"]
+                        .value_counts().head(5)
+                        .reset_index())
+                top5.columns = ["教師帳號", "審查次數"]
+                top5.index = range(1, len(top5) + 1)
+                top5.index.name = "排名"
+                st.dataframe(top5, use_container_width=True)
 
-            # 詳細紀錄
-            with st.expander("📋 查看詳細紀錄"):
-                st.dataframe(display.sort_index(ascending=False), use_container_width=True, hide_index=True)
+            # 詳細紀錄（僅近 1 個月）
+            with st.expander("📋 查看詳細紀錄（近 1 個月）"):
+                one_month_ago = (datetime.today() - timedelta(days=30)).date()
+                recent = display[display["date"].notna() & (display["date"] >= one_month_ago)]
+                if len(recent) > 0:
+                    show_cols = ["email", "action", "timestamp"]
+                    st.dataframe(
+                        recent[show_cols].sort_values("timestamp", ascending=False).reset_index(drop=True),
+                        use_container_width=True, hide_index=True)
+                else:
+                    st.info("近 1 個月無紀錄。")
 
     # --- Tab 3：系統公告 ---
     with tab3:
