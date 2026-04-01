@@ -246,12 +246,55 @@ EXAM_TYPE_MAP = {
     "月考二":"第二次月考","期末評量":"第二次月考","期末考":"第二次月考",
 }
 
+SUBJECT_MAP = {
+    "國語": "國語", "國語文": "國語", "國語科": "國語", "語文": "國語",
+    "語文領域": "國語", "國語文領域": "國語", "國語領域": "國語",
+    "數學": "數學", "數學科": "數學", "數學領域": "數學",
+    "英語": "英語", "英文": "英語", "英語科": "英語", "英語文": "英語",
+    "英語領域": "英語", "英語文領域": "英語",
+    "社會": "社會", "社會科": "社會", "社會領域": "社會",
+    "自然": "自然", "自然科": "自然", "自然科學": "自然",
+    "自然科學領域": "自然", "自然領域": "自然", "自然與生活科技": "自然",
+}
+
+_CN_DIGITS = {"一":1,"二":2,"三":3,"四":4,"五":5,"六":6}
+_NUM_TO_GRADE = {1:"一年級",2:"二年級",3:"三年級",4:"四年級",5:"五年級",6:"六年級"}
+
 def normalize_exam_type(raw):
     raw = raw.strip()
     if raw in EXAM_TYPE_MAP: return EXAM_TYPE_MAP[raw]
     for k, v in EXAM_TYPE_MAP.items():
         if k in raw: return v
     return ""
+
+def normalize_subject(raw):
+    """正規化科目名稱，如「自然科學領域」→「自然」"""
+    raw = raw.strip()
+    if raw in SUBJECT_MAP: return SUBJECT_MAP[raw]
+    # 模糊比對：只要包含關鍵字
+    for k, v in SUBJECT_MAP.items():
+        if k in raw: return v
+    return raw  # 找不到就原樣回傳
+
+def normalize_grade(raw):
+    """正規化年級名稱，如「5年級」→「五年級」、「四」→「四年級」"""
+    raw = raw.strip()
+    # 已經是標準格式
+    if raw in _NUM_TO_GRADE.values():
+        return raw
+    # 「四」→「四年級」
+    if raw in _CN_DIGITS:
+        return f"{raw}年級"
+    # 「4年級」「5 年級」→ 阿拉伯數字轉中文
+    m = re.match(r'^(\d)[年]?級?$', raw.replace(" ", ""))
+    if m:
+        n = int(m.group(1))
+        return _NUM_TO_GRADE.get(n, raw)
+    # 「四年級」但帶有額外空白或字元
+    for cn, num in _CN_DIGITS.items():
+        if cn in raw and "年" in raw:
+            return f"{cn}年級"
+    return raw  # 找不到就原樣回傳
 
 def get_all_curriculum():
     """讀取全部教學重點資料，回傳 list of dict"""
@@ -321,6 +364,9 @@ def save_curriculum_filtered(data_list, grade=None, subject=None, semester=None)
 def get_curriculum_standards(grade, subject, semester, exam_type):
     result = {"standards": "", "match_type": "none", "label": ""}
     if not grade or not subject or not semester: return result
+    norm_grade = normalize_grade(grade)
+    norm_subject = normalize_subject(subject)
+    norm_semester = semester.strip()
     norm_exam = normalize_exam_type(exam_type)
     try:
         ws = _open_sheet().worksheet("curriculum")
@@ -331,16 +377,17 @@ def get_curriculum_standards(grade, subject, semester, exam_type):
             if len(r) < 5: continue
             rg, rs, rse, re_, rc = [r[i].strip() for i in range(5)]
             if not rc: continue
-            if rg == grade and rs == subject and rse == semester:
+            # 正規化 Sheets 端的值再比對
+            if normalize_grade(rg) == norm_grade and normalize_subject(rs) == norm_subject and rse == norm_semester:
                 if norm_exam and re_ == norm_exam: exact = rc; break
                 sem_matches.append(rc)
         if exact:
             result = {"standards": exact, "match_type": "exact",
-                      "label": f"{grade} {subject} {semester} {norm_exam}"}
+                      "label": f"{norm_grade} {norm_subject} {norm_semester} {norm_exam}"}
         elif sem_matches:
             result = {"standards": "\n".join(dict.fromkeys(sem_matches)),
                       "match_type": "semester",
-                      "label": f"{grade} {subject} {semester}（完整學期）"}
+                      "label": f"{norm_grade} {norm_subject} {norm_semester}（完整學期）"}
     except Exception as e:
         print(f"curriculum read error: {e}")
     return result
