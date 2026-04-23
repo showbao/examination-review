@@ -15,7 +15,16 @@ from zoneinfo import ZoneInfo
 # 模型管理
 # ==========================================
 
-_EXCLUDED_KEYWORDS = ["thinking", "experimental", "exp-", "lite", "8b", "nano"]
+PDF_FLASH_MODELS = [
+    "models/gemini-2.5-flash",
+    "models/gemini-2.0-flash",
+    "models/gemini-1.5-flash",
+]
+PDF_PRO_MODELS = [
+    "models/gemini-2.5-pro",
+    "models/gemini-1.5-pro",
+]
+METADATA_MODEL = PDF_FLASH_MODELS[0]
 
 def _parse_model_version(name: str) -> tuple:
     match = re.search(r'gemini[- ](\d+)\.(\d+)', name.lower())
@@ -24,22 +33,23 @@ def _parse_model_version(name: str) -> tuple:
 def _prefer_latest(name: str) -> int:
     return 1 if "latest" in name.lower() else 0
 
-def _get_best_model(api_key: str, model_type: str) -> str:
+def _available_generate_content_models(api_key: str) -> set:
     genai.configure(api_key=api_key)
-    fallback = f"models/gemini-1.5-{model_type}"
+    return {
+        m.name for m in genai.list_models()
+        if 'generateContent' in m.supported_generation_methods
+    }
+
+def _get_best_model(api_key: str, model_type: str) -> str:
+    allowed = PDF_PRO_MODELS if model_type == "pro" else PDF_FLASH_MODELS
     try:
-        candidates = [
-            m for m in genai.list_models()
-            if 'generateContent' in m.supported_generation_methods
-            and model_type in m.name.lower() and "gemini" in m.name.lower()
-            and not any(kw in m.name.lower() for kw in _EXCLUDED_KEYWORDS)
-        ]
-        if not candidates:
-            return fallback
-        candidates.sort(key=lambda m: (_parse_model_version(m.name), _prefer_latest(m.name), m.name), reverse=True)
-        return candidates[0].name
+        available = _available_generate_content_models(api_key)
+        for model_name in allowed:
+            if model_name in available:
+                return model_name
+        return allowed[-1]
     except Exception:
-        return fallback
+        return allowed[0]
 
 def get_best_flash_model(api_key: str) -> str:
     k = "_cached_flash_model"
@@ -50,6 +60,16 @@ def get_best_pro_model(api_key: str) -> str:
     k = "_cached_pro_model"
     if k in st.session_state: return st.session_state[k]
     m = _get_best_model(api_key, "pro"); st.session_state[k] = m; return m
+
+def is_input_modality_error(error) -> bool:
+    msg = str(error).lower()
+    return any(token in msg for token in [
+        "image input modality",
+        "input modality",
+        "modality is not enabled",
+        "does not support image",
+        "does not support pdf",
+    ])
 
 # ==========================================
 # PDF 上傳

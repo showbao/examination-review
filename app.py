@@ -13,6 +13,7 @@ from utils import (
     get_curriculum_standards, build_curriculum_prompt_text,
     get_all_curriculum, save_curriculum_filtered,
     get_all_logs, get_announcement, save_announcement,
+    METADATA_MODEL, PDF_FLASH_MODELS, PDF_PRO_MODELS, is_input_modality_error,
 )
 from word_report import create_word_report
 
@@ -673,8 +674,6 @@ if start_btn:
             fn=exam_file.name
             status_box.info(f"🔍 上傳試卷... ({fn})")
             progress_bar.progress(5)
-            flash_name=get_best_flash_model(api_key)
-            flash_model=genai.GenerativeModel(flash_name)
             exam_ref=upload_to_gemini(exam_file)
             progress_bar.progress(20)
 
@@ -688,10 +687,29 @@ if start_btn:
 請閱讀試卷，輸出純JSON：
 {{"year":"學年度","semester":"學期","grade":"年級","subject":"科目","exam_type":"評量類別","total_items":總題數,
 "sections":[{{"number":"一","type":"是非題","range":"1-10","count":10,"first_item_text":"開頭5-7字"}}]}}
-sections用中文數字,找不到填空字串,sections填[],total_items填0。"""
+            sections用中文數字,找不到填空字串,sections填[],total_items填0。"""
             progress_bar.progress(25)
-            meta_resp=flash_model.generate_content([meta_prompt,exam_ref])
-            metadata=safe_parse_json(meta_resp.text)
+            metadata_model_names = [METADATA_MODEL] + [
+                m for m in PDF_FLASH_MODELS + PDF_PRO_MODELS if m != METADATA_MODEL
+            ]
+            metadata_generated = False
+            last_metadata_error = None
+            metadata = None
+            for metadata_model_name in metadata_model_names:
+                try:
+                    flash_model=genai.GenerativeModel(metadata_model_name)
+                    meta_resp=flash_model.generate_content([meta_prompt,exam_ref])
+                    metadata=safe_parse_json(meta_resp.text)
+                    metadata_generated = True
+                    break
+                except Exception as e:
+                    last_metadata_error = e
+                    if is_input_modality_error(e):
+                        status_box.info("🔁 目前模型無法讀取 PDF，改用備援模型重新辨識...")
+                        continue
+                    raise
+            if not metadata_generated and last_metadata_error:
+                raise last_metadata_error
             if metadata is None:
                 metadata={"year":"","semester":"","grade":"","subject":"","exam_type":"","sections":[],"total_items":0}
                 st.warning("⚠️ 試卷資訊擷取失敗。")
