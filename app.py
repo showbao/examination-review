@@ -271,8 +271,12 @@ def render_footer():
 # ==========================================
 # 5. 登入
 # ==========================================
+def _get_auth_user():
+    return getattr(st, "user", st.experimental_user)
+
 def check_session_timeout():
-    if not st.user.is_logged_in: return
+    auth_user = _get_auth_user()
+    if not auth_user.is_logged_in: return
     if "last_activity" not in st.session_state:
         st.session_state["last_activity"]=time.time(); return
     rem = SESSION_TIMEOUT-(time.time()-st.session_state["last_activity"])
@@ -294,8 +298,9 @@ def check_login():
     if st.query_params.get("admin") == "1":
         return False  # 讓主流程跳到管理頁面
 
-    if st.user.is_logged_in:
-        email = st.user.get("email","").strip().lower()
+    auth_user = _get_auth_user()
+    if auth_user.is_logged_in:
+        email = auth_user.get("email","").strip().lower()
         st.session_state["user_email"] = email
         if not email.endswith(ALLOWED_EMAIL_DOMAIN):
             st.error("❌ 此帳號未被授權")
