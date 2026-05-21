@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import timedelta, datetime
 
 from utils import (
-    get_best_flash_model, get_best_pro_model, upload_to_gemini,
+    get_best_flash_model, get_best_pro_model, upload_to_gemini, configure_gemini,
     normalize_analysis_tables, clean_ai_hallucinations,
     safe_parse_json, call_with_retry, log_usage,
     get_curriculum_standards, build_curriculum_prompt_text,
@@ -602,6 +602,7 @@ if announcement:
 if "GEMINI_API_KEY" not in st.secrets:
     st.error("請設定 Secrets: GEMINI_API_KEY"); st.stop()
 api_key = st.secrets["GEMINI_API_KEY"]
+configure_gemini(api_key)
 
 # ==========================================
 # 9. 兩欄 UI
@@ -679,7 +680,11 @@ if start_btn:
             fn=exam_file.name
             status_box.info(f"🔍 上傳試卷... ({fn})")
             progress_bar.progress(5)
-            exam_ref=upload_to_gemini(exam_file)
+            exam_ref=upload_to_gemini(
+                exam_file,
+                api_key=api_key,
+                status_callback=lambda message: status_box.info(message),
+            )
             progress_bar.progress(20)
 
             status_box.info("🔍 辨識試卷結構...")

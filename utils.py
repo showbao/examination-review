@@ -25,6 +25,9 @@ PDF_PRO_MODELS = [
     "models/gemini-1.5-pro",
 ]
 METADATA_MODEL = PDF_FLASH_MODELS[0]
+UPLOAD_RETRY_LIMIT = 2
+UPLOAD_RETRY_BASE_WAIT_SECONDS = 3
+UPLOAD_PROCESSING_TIMEOUT_SECONDS = 180
 
 def _parse_model_version(name: str) -> tuple:
     match = re.search(r'gemini[- ](\d+)\.(\d+)', name.lower())
@@ -33,8 +36,16 @@ def _parse_model_version(name: str) -> tuple:
 def _prefer_latest(name: str) -> int:
     return 1 if "latest" in name.lower() else 0
 
-def _available_generate_content_models(api_key: str) -> set:
+def configure_gemini(api_key: str) -> None:
+    if not api_key:
+        raise ValueError("Missing Gemini API key")
+    if st.session_state.get("_configured_gemini_api_key") == api_key:
+        return
     genai.configure(api_key=api_key)
+    st.session_state["_configured_gemini_api_key"] = api_key
+
+def _available_generate_content_models(api_key: str) -> set:
+    configure_gemini(api_key)
     return {
         m.name for m in genai.list_models()
         if 'generateContent' in m.supported_generation_methods
@@ -75,16 +86,67 @@ def is_input_modality_error(error) -> bool:
 # PDF 上傳
 # ==========================================
 
-def upload_to_gemini(file_obj):
+def _is_timeout_error(error: Exception) -> bool:
+    msg = str(error).lower()
+    return isinstance(error, TimeoutError) or any(token in msg for token in [
+        "timed out",
+        "timeout",
+        "read operation timed out",
+    ])
+
+def _format_upload_error(error: Exception) -> str:
+    if _is_timeout_error(error):
+        return "PDF upload to Gemini timed out. Please retry or use a smaller PDF."
+    return f"PDF upload failed: {error}"
+
+def upload_to_gemini(file_obj, api_key=None, status_callback=None,
+                     max_retries=UPLOAD_RETRY_LIMIT,
+                     retry_wait_seconds=UPLOAD_RETRY_BASE_WAIT_SECONDS,
+                     processing_timeout_seconds=UPLOAD_PROCESSING_TIMEOUT_SECONDS):
     if not file_obj.name.lower().endswith(".pdf"):
-        raise ValueError("目前僅支援 PDF 檔案上傳。")
+        raise ValueError("Only PDF uploads are supported.")
+    if api_key:
+        configure_gemini(api_key)
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(file_obj.getvalue()); tmp_path = tmp.name
-    ref = genai.upload_file(tmp_path, mime_type="application/pdf")
-    while ref.state.name == "PROCESSING":
-        time.sleep(1); ref = genai.get_file(ref.name)
-    os.remove(tmp_path)
-    return ref
+        tmp.write(file_obj.getvalue())
+        tmp_path = tmp.name
+
+    try:
+        last_error = None
+        ref = None
+        for attempt in range(max_retries + 1):
+            try:
+                ref = genai.upload_file(tmp_path, mime_type="application/pdf")
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries and _is_timeout_error(e):
+                    if status_callback:
+                        status_callback(f"PDF upload is slow. Retrying ({attempt + 1}/{max_retries})...")
+                    time.sleep(retry_wait_seconds * (attempt + 1))
+                    continue
+                raise RuntimeError(_format_upload_error(e)) from e
+
+        if ref is None:
+            raise RuntimeError(_format_upload_error(last_error or RuntimeError("未知上傳錯誤")))
+
+        started_at = time.time()
+        while ref.state.name == "PROCESSING":
+            if time.time() - started_at > processing_timeout_seconds:
+                raise TimeoutError(
+                    f"PDF was uploaded, but Gemini processing exceeded {processing_timeout_seconds} seconds. "
+                    "Please retry later or use a smaller PDF."
+                )
+            time.sleep(1)
+            ref = genai.get_file(ref.name)
+
+        if ref.state.name != "ACTIVE":
+            raise RuntimeError(f"PDF upload finished, but processing ended with state: {ref.state.name}")
+        return ref
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 # ==========================================
 # 文字清洗
