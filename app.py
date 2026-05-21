@@ -14,6 +14,7 @@ from utils import (
     get_all_curriculum, save_curriculum_filtered,
     get_all_logs, get_announcement, save_announcement,
     METADATA_MODEL, PDF_FLASH_MODELS, PDF_PRO_MODELS, is_input_modality_error,
+    get_user_friendly_error,
 )
 from word_report import create_word_report
 
@@ -887,7 +888,7 @@ if start_btn:
             progress_bar.progress(100); status_box.success("✅ 分析完成！")
             st.session_state.analysis_result=final; st.session_state.used_model_name=target_model
         except Exception as e:
-            st.error(f"發生錯誤: {e}")
+            st.error(get_user_friendly_error(e))
             if "429" in str(e): st.warning("💡 已重試仍失敗，請稍後再試。")
 
 # ==========================================

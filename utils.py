@@ -25,8 +25,8 @@ PDF_PRO_MODELS = [
     "models/gemini-1.5-pro",
 ]
 METADATA_MODEL = PDF_FLASH_MODELS[0]
-UPLOAD_RETRY_LIMIT = 2
-UPLOAD_RETRY_BASE_WAIT_SECONDS = 3
+UPLOAD_RETRY_LIMIT = 4
+UPLOAD_RETRY_BASE_WAIT_SECONDS = 5
 UPLOAD_PROCESSING_TIMEOUT_SECONDS = 180
 
 def _parse_model_version(name: str) -> tuple:
@@ -94,10 +94,39 @@ def _is_timeout_error(error: Exception) -> bool:
         "read operation timed out",
     ])
 
+def _is_retryable_upload_error(error: Exception) -> bool:
+    msg = str(error).lower()
+    return _is_timeout_error(error) or any(token in msg for token in [
+        "503",
+        "500",
+        "502",
+        "504",
+        "service unavailable",
+        "temporarily unavailable",
+        "backend error",
+        "connection aborted",
+        "remote disconnected",
+        "connection reset",
+    ])
+
+def _sanitize_error_text(text: str) -> str:
+    text = re.sub(r'key=[^&\s">]+', 'key=[REDACTED]', text)
+    text = re.sub(r'https://[^\s">]+', '[request-url-hidden]', text)
+    return text
+
 def _format_upload_error(error: Exception) -> str:
     if _is_timeout_error(error):
         return "PDF upload to Gemini timed out. Please retry or use a smaller PDF."
-    return f"PDF upload failed: {error}"
+    if _is_retryable_upload_error(error):
+        return "Gemini service is temporarily unavailable. Please retry in a moment."
+    return f"PDF upload failed. {_sanitize_error_text(str(error))}"
+
+def get_user_friendly_error(error: Exception) -> str:
+    if isinstance(error, RuntimeError) and str(error):
+        return _sanitize_error_text(str(error))
+    if _is_retryable_upload_error(error):
+        return "Gemini service is temporarily unavailable. Please retry in a moment."
+    return f"Unexpected error: {_sanitize_error_text(str(error))}"
 
 def upload_to_gemini(file_obj, api_key=None, status_callback=None,
                      max_retries=UPLOAD_RETRY_LIMIT,
@@ -121,9 +150,9 @@ def upload_to_gemini(file_obj, api_key=None, status_callback=None,
                 break
             except Exception as e:
                 last_error = e
-                if attempt < max_retries and _is_timeout_error(e):
+                if attempt < max_retries and _is_retryable_upload_error(e):
                     if status_callback:
-                        status_callback(f"PDF upload is slow. Retrying ({attempt + 1}/{max_retries})...")
+                        status_callback(f"Gemini upload is temporarily unavailable. Retrying ({attempt + 1}/{max_retries})...")
                     time.sleep(retry_wait_seconds * (attempt + 1))
                     continue
                 raise RuntimeError(_format_upload_error(e)) from e
